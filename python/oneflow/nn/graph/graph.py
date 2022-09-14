@@ -138,6 +138,7 @@ class Graph(object):
         self._debug_max_py_stack_depth = 2
         self._debug_op_repr_with_py_stack = False
         self._debug_only_user_py_stack = True
+        self._only_compile = False
         self._outputs_buffer_size = 2
         self._cur_index_of_ouputs_buffer = 0
 
@@ -221,11 +222,10 @@ class Graph(object):
         """
 
         if not self._is_compiled:
-            self._compile(*args, **kwargs)
-            self.__print(
-                0, 2, lambda: f"{self.name} with operators:\n" + self.__repr__()
-            )
-
+            if not self._only_compile:
+                self._compile(*args, **kwargs)
+            else:
+                return self._compile(*args, **kwargs)
         return self.__run(*args, **kwargs)
 
     def add_optimizer(
@@ -429,6 +429,7 @@ class Graph(object):
         max_py_stack_depth: int = 2,
         only_user_py_stack=True,
         op_repr_with_py_stack=False,
+        only_compile=False,
     ) -> None:
         r"""Open or close debug mode of the graph.
 
@@ -452,6 +453,8 @@ class Graph(object):
 
         Use ``op_repr_with_py_stack`` to print operators' locations when printing nn.Graph's repr.
 
+        Use ``only_compile`` to only run graph compile.
+
         For example:
 
         .. code-block:: python
@@ -467,6 +470,7 @@ class Graph(object):
             max_py_stack_depth(int): the maximum depth for the Python stack debug information. Default: ``2``.
             only_user_py_stack(bool): only to print the operators' locations from users' code. Default: ``True``.
             op_repr_with_py_stack(bool):  print operators' locations when printing nn.Graph's repr. Default: ``False``.
+            only_compile(bool): only to run graph compile. Default: ``False``.
         """
         assert isinstance(v_level, int)
         assert v_level >= -1, "The min verbose debug info level is -1."
@@ -504,6 +508,7 @@ class Graph(object):
         self._debug_max_py_stack_depth = max_py_stack_depth
         self._debug_op_repr_with_py_stack = op_repr_with_py_stack
         self._debug_only_user_py_stack = only_user_py_stack
+        self._only_compile = only_compile
 
     def __repr__(self):
         r"""For printing the graph structure.
@@ -778,6 +783,9 @@ class Graph(object):
         self.__ensure_input_tensors_contiguous(*args, **kwargs)
         _, eager_outputs = self.build_graph(*args, **kwargs)
         self.finish_complie_and_init_runtime()
+        self.__print(
+            0, 1, lambda: f"{self.name} with operators:\n" + self.__repr__()
+        )
         return eager_outputs
 
     def build_graph(self, *args, **kwargs):
