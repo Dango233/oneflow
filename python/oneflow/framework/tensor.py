@@ -795,9 +795,9 @@ def _copy_from_numpy_to_eager_local_tensor(eager_local_tensor, np_arr):
 
 def _init_by_initializer_conf(tensor, initializer_conf, random_seed=None):
     if random_seed is None:
-        random_seed = flow.default_generator.initial_seed()
+        random_seed = flow.default_generator.seed()
     shape = tuple(tensor.shape)
-    initializer = initializer_util.GetInitializer(initializer_conf, random_seed, shape)
+    initializer = initializer_util.GetInitializer(initializer_conf, 222, shape)
 
     np_arr = initializer_util.generate_values_by_initializer(
         initializer, shape, tensor.dtype
