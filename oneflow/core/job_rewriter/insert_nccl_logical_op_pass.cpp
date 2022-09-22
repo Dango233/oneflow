@@ -996,7 +996,7 @@ void InsertBwSinkAccTickAndNcclLogicalOpsInPlacementGroupAfterAcc(
 
   if (after_acc_nccl_op_confs.empty()) {
     CHECK(after_acc_nccl_parallel_confs.empty());
-    CHECK(mut_consumer_name2op.empty());
+    // CHECK(mut_consumer_name2op.empty());
   } else {
     // insert bw sink acc tick ops
     CHECK_JUST(
