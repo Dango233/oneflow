@@ -746,6 +746,9 @@ void InsertNcclLogicalOpsAfterAcc(const OpGraph& op_graph,
     }
   }
 
+  // NOTE(chengcheng): if no nccl insert in acc subgraph, do nothing.
+  if (nccl_op_infos.empty()) { return; }
+
   for (const auto* node : after_acc_subgraph_nodes) { ordered_after_acc_subgraph.push_back(node); }
 
   CHECK_EQ(after_acc_subgraph_nodes.size(), ordered_after_acc_subgraph.size());
