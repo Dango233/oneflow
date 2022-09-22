@@ -271,11 +271,11 @@ def _worker_loop(
         seed = base_seed + worker_id
         random.seed(seed)
         flow.manual_seed(seed)
-        if HAS_NUMPY:
-            np_seed = _generate_state(base_seed, worker_id)
-            import numpy as np
+        #if HAS_NUMPY:
+            #np_seed = _generate_state(base_seed, worker_id)
+            #import numpy as np
 
-            np.random.seed(np_seed)
+            #np.random.seed(np_seed)
 
         global _worker_info
         _worker_info = WorkerInfo(
