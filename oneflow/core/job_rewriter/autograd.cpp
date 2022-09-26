@@ -743,7 +743,6 @@ Maybe<void> ScaleInitialDiffByLossScale(
     }
 
     std::string loss_scale_val_lbn;
-    std::string loss_diff_lbn = GenLogicalBlobName(initial_diff_lbi);
     if (train_conf.has_dynamic_loss_scale_policy()) {
       const auto& dynamic_loss_scale_state =
           JUST(ctx->GetState<DynamicLossScaleJobPassState>("dynamic_loss_scale_state"));
@@ -762,6 +761,7 @@ Maybe<void> ScaleInitialDiffByLossScale(
     } else {
       UNIMPLEMENTED_THEN_RETURN() << "dynamic or static loss scale must be config";
     }
+
     const int64_t time_shape_elem_cnt =
         JUST(initial_diff_node->op().GetInputBlobFastestTimeShape())->elem_cnt();
     if (time_shape_elem_cnt != 1) {
