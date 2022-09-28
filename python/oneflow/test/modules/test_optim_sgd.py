@@ -264,6 +264,5 @@ class TestOptimizers(flow.unittest.TestCase):
         for arg in GenArgDict(arg_dict):
             compare_with_numpy_sgd_clip_grad(test_case, **arg)
 
-
 if __name__ == "__main__":
     unittest.main()

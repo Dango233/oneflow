@@ -50,7 +50,6 @@ def test_equal_optimizer_update(
         for i in range(train_iters):
             x = oneflow.tensor(xx[i], device=device)
             y = oneflow.tensor(yy, device=device)
-            #print(list(model.parameters())[0][0])
             loss = ce(model(x), y)
             optimizer.zero_grad()
             loss.backward()
