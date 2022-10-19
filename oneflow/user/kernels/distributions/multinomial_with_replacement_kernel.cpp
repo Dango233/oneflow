@@ -29,20 +29,6 @@ static size_t InferTmpSizeForCpuKernel(user_op::InferContext* ctx) {
   return n_categories * GetSizeOfDataType(x.data_type());
 }
 
-template<typename T, typename V>
-static T uniform_real(V val, T from, T to) {
-  constexpr auto MASK =
-      static_cast<V>((static_cast<uint64_t>(1) << std::numeric_limits<T>::digits) - 1);
-  constexpr auto DIVISOR =
-      static_cast<T>(1) / (static_cast<uint64_t>(1) << std::numeric_limits<T>::digits);
-  T x = (val & MASK) * DIVISOR;
-  return (x * (to - from) + from);
-}
-
-static uint64_t make64BitsFrom32Bits(uint32_t hi, uint32_t lo) {
-  return (static_cast<uint64_t>(hi) << 32) | lo;
-}
-
 }  // namespace
 
 template<typename T>
@@ -113,11 +99,7 @@ class MultinomialWithReplacementCpuKernel final : public user_op::OpKernel {
 
       for (int j = 0; j < num_samples; ++j) {
         /* sample a probability mass from a uniform distribution */
-        // at::uniform_real_distribution<double> uniform(0, 1);
-        // double uniform_sample = uniform(gen);
-        uint32_t random1 = engine();
-        uint32_t random2 = engine();
-        uint64_t rand_unit = make64BitsFrom32Bits(random1, random2);
+        uint64_t rand_unit = random64(engine);
         double uniform_sample = uniform_real(rand_unit, 0.0, 1.0);
 
         // Do a binary search for the slot in which the prob falls

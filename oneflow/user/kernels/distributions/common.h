@@ -19,8 +19,32 @@ limitations under the License.
 #include "oneflow/core/common/data_type.h"
 #include "oneflow/core/framework/framework.h"
 #include "oneflow/core/framework/random_generator.h"
-
+#include "oneflow/core/ep/cuda/cuda_stream.h"
 namespace oneflow {
+
+uint64_t random64(one::pytorch_mt19937_engine& engine);
+uint32_t random(one::pytorch_mt19937_engine& engine);
+uint64_t make64BitsFrom32Bits(uint32_t hi, uint32_t lo);
+
+// launch bounds used for kernels
+const uint32_t block_size_bound = 256;
+const uint32_t grid_size_bound = 4;
+// number of randoms given by distributions like curand_uniform4, curand_uniform2_double
+// used in calculating philox offset.
+const uint32_t curand4_engine_calls = 4;
+
+std::tuple<uint64_t, dim3, dim3> calc_execution_policy(int64_t total_elements,
+                                                       ep::CudaStream* stream);
+
+template<typename T, typename V>
+T uniform_real(V val, T from, T to) {
+  constexpr auto MASK =
+      static_cast<V>((static_cast<uint64_t>(1) << std::numeric_limits<T>::digits) - 1);
+  constexpr auto DIVISOR =
+      static_cast<T>(1) / (static_cast<uint64_t>(1) << std::numeric_limits<T>::digits);
+  T x = (val & MASK) * DIVISOR;
+  return (x * (to - from) + from);
+}
 
 class DistributionKernelState : public user_op::OpKernelState {
  public:

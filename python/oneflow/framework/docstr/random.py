@@ -19,13 +19,12 @@ from oneflow.framework.docstr.utils import add_docstr
 add_docstr(
     oneflow.bernoulli,
     """
-    bernoulli(input, p, *, generator=None, out=None)
+    bernoulli(input, *, generator=None, out=None)
     
     This operator returns a Tensor with binaray random numbers (0 / 1) from a Bernoulli distribution.
 
     Args:
         input (Tensor): the input tensor of probability values for the Bernoulli distribution
-        p (float, optional): the probability for the Bernoulli distribution. If specified, Bernoulli distribution will use p for sampling, not input
         generator (Generator, optional): a pseudorandom number generator for sampling
         out (Tensor, optional): the output tensor.
 
@@ -53,16 +52,6 @@ add_docstr(
         tensor([[1., 1., 1.],
                 [1., 1., 1.],
                 [1., 1., 1.]], dtype=oneflow.float32)
-        >>> y = flow.bernoulli(x, 1)
-        >>> y
-        tensor([[1., 1., 1.],
-                [1., 1., 1.],
-                [1., 1., 1.]], dtype=oneflow.float32)
-        >>> y = flow.bernoulli(x, p=0)
-        >>> y
-        tensor([[0., 0., 0.],
-                [0., 0., 0.],
-                [0., 0., 0.]], dtype=oneflow.float32)
 
     """,
 )

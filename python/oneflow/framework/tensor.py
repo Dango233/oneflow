@@ -233,6 +233,10 @@ def _exponential(self, lambd=1.0, generator=None):
     return flow._C.exponential_(self, lambd, generator)
 
 
+def _bernoulli(self, p=None, generator=None):
+    return flow._C.bernoulli_(self, p, generator)
+
+
 def _trunc_normal_(
     self, mean=0.0, std=1.0, a=-2.0, b=2.0,
 ):
@@ -585,6 +589,7 @@ def RegisterMethods():
     Tensor.__array__ = _numpy
     Tensor.uniform_ = _uniform
     Tensor.exponential_ = _exponential
+    Tensor.bernoulli_ = _bernoulli
     Tensor.trunc_normal_ = _trunc_normal_
     Tensor.kaiming_uniform_ = _kaiming_uniform
     Tensor.kaiming_normal_ = _kaiming_normal

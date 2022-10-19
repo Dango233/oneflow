@@ -2680,7 +2680,7 @@ Maybe<Tensor> DropoutImpl(const std::shared_ptr<one::Tensor>& input, const float
     return InplaceMul(input, other);
   }
   std::shared_ptr<Tensor> noise = JUST(MakeFeatureNoise(input));
-  noise = JUST(BernoulliProb(noise, 1.0 - p, noise->dtype(), JUST(one::DefaultAutoGenerator())));
+  noise = JUST(BernoulliScalarInplace(noise, 1.0 - p, JUST(one::DefaultAutoGenerator())));
   noise = JUST(InplaceScalarDiv(noise, Scalar(1.0 - p)));
   noise = JUST(InplaceMul(input, noise));
   return noise;

@@ -24,7 +24,7 @@ limitations under the License.
 #include "oneflow/core/ep/include/primitive/fill.h"
 #include "oneflow/core/ep/cuda/cuda_device.h"
 #include "oneflow/core/ep/include/primitive/matmul.h"
-#include "oneflow/user/kernels/fused_rnn_cell_kernel_util.h"
+#include "oneflow/user/kernels/cuda_macros.h"
 
 // NOTE(Liang Depeng): The implementation of fused_lstm_cell is modified from
 //                     https://github.com/pytorch/pytorch/blob/master/aten/src/ATen/native/cuda/RNN.cu

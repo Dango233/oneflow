@@ -848,14 +848,6 @@
   signature: "Tensor (Tensor x) => OnesLike"
   bind_python: False
 
-- name: "bernoulli"
-  signature:
-    [
-      "Tensor (Tensor input, *, DataType dtype=kFloat, Generator generator=None) => Bernoulli",
-      "Tensor (Tensor input, Double p, *, DataType dtype=kFloat, Generator generator=None) => BernoulliProb",
-    ]
-  bind_python: True
-
 - name: "concat"
   signature: "Tensor (TensorTuple inputs, Int64 dim=0) => Concat"
   bind_python: True
@@ -2854,4 +2846,16 @@
 
 - name: "bincount"
   signature: "Tensor (Tensor input, Tensor weights=None, Int64 minlength=None) => BinCount"
+  bind_python: True
+
+- name: "bernoulli_"
+  signature:
+    [
+      "Tensor (Tensor self, Float p=0.5, Generator generator=None) => BernoulliScalarInplace",
+      "Tensor (Tensor self, Tensor p, Generator generator=None) => BernoulliTensorInplace",
+    ]
+  bind_python: True
+
+- name: "bernoulli"
+  signature: "Tensor (Tensor p, Generator generator=None) => BernoulliTensor"
   bind_python: True

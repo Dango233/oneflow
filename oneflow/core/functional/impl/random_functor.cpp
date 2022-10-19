@@ -43,50 +43,6 @@ namespace functional {
 
 namespace impl {
 
-class BernoulliFunctor {
- public:
-  BernoulliFunctor() {
-    bernoulli_op_ = CHECK_JUST(one::OpBuilder("bernoulli").Input("in").Output("out").Build());
-  }
-  Maybe<Tensor> operator()(const std::shared_ptr<one::Tensor>& x, const Symbol<DType>& dtype,
-                           const Optional<one::Generator>& generator) const {
-    const auto gen = generator.value_or(JUST(one::DefaultAutoGenerator()));
-    auto& bernoulli_attrs = THREAD_CACHED_MUTABLE_ATTR_MAP("dtype", "seed", "p");
-
-    // p == -1 means bernoulli op doesn't use p to generate random number
-    bernoulli_attrs.SetAllAttrs(dtype->data_type(), static_cast<int64_t>(gen->current_seed()),
-                                static_cast<double>(-1));
-    const auto& distribution_state = std::make_shared<DistributionKernelState>(gen);
-    return OpInterpUtil::Dispatch<Tensor>(*bernoulli_op_, {x},
-                                          OpExprInterpContext(bernoulli_attrs, distribution_state));
-  }
-
- private:
-  std::shared_ptr<OpExpr> bernoulli_op_;
-};
-
-class BernoulliProbFunctor {
- public:
-  BernoulliProbFunctor() {
-    bernoulli_op_ = CHECK_JUST(one::OpBuilder("bernoulli").Input("in").Output("out").Build());
-  }
-  Maybe<Tensor> operator()(const std::shared_ptr<one::Tensor>& x, const double& p,
-                           const Symbol<DType>& dtype,
-                           const Optional<one::Generator>& generator) const {
-    const auto gen = generator.value_or(JUST(one::DefaultAutoGenerator()));
-    const auto& distribution_state = std::make_shared<DistributionKernelState>(gen);
-    CHECK_OR_THROW(p >= 0.0 && p <= 1.0) << "bernoulli expects p to be in [0, 1], but got p=" << p;
-
-    auto& bernoulli_attrs = THREAD_CACHED_MUTABLE_ATTR_MAP("dtype", "seed", "p");
-    bernoulli_attrs.SetAllAttrs(dtype->data_type(), static_cast<int64_t>(gen->current_seed()), p);
-    return OpInterpUtil::Dispatch<Tensor>(*bernoulli_op_, {x},
-                                          OpExprInterpContext(bernoulli_attrs, distribution_state));
-  }
-
- private:
-  std::shared_ptr<OpExpr> bernoulli_op_;
-};
-
 class RandFunctor {
  public:
   RandFunctor() { op_ = CHECK_JUST(one::OpBuilder("uniform").Output("out").Build()); }
@@ -554,13 +510,135 @@ class MultinomialFunctor {
   std::shared_ptr<OpExpr> op_gpu_;
 };
 
+class BernoulliScalarInplaceFunctor {
+ public:
+  BernoulliScalarInplaceFunctor() {
+    op_ = CHECK_JUST(one::OpBuilder("bernoulli_scalar").Output("out").Build());
+  }
+  Maybe<Tensor> operator()(const std::shared_ptr<one::Tensor>& self, const float& p,
+                           const Optional<one::Generator>& generator) const {
+    DataType dtype_val = self->dtype()->data_type();
+    const Shape& out_shape = *(self->shape());
+    const auto gen = generator.value_or(JUST(one::DefaultAutoGenerator()));
+    const auto& distribution_state = std::make_shared<DistributionKernelState>(gen);
+
+    std::shared_ptr<TensorTuple> outputs = std::make_shared<TensorTuple>(1);
+    outputs->at(0) = self;
+    if (self->is_global()) {
+      const auto& placement = JUST(self->parallel_desc());
+      const auto& nd_sbp = JUST(self->nd_sbp());
+      auto& attrs = THREAD_CACHED_MUTABLE_ATTR_MAP("seed", "p", "dtype", "out_shape", "nd_sbp");
+
+      if (LazyMode::is_enabled()) {
+        attrs.SetAllAttrs(static_cast<int64_t>(gen->current_seed()), p, dtype_val, out_shape,
+                          *JUST(GetNdSbpStrList(nd_sbp)));
+      } else {
+        attrs.SetAllAttrs(static_cast<int64_t>(gen->current_seed()), p, dtype_val, out_shape,
+                          NullOpt);
+      }
+      JUST(OpInterpUtil::Dispatch(
+          *op_, {}, outputs.get(),
+          OpExprInterpContext(attrs, placement, nd_sbp, distribution_state)));
+    } else {
+      auto& attrs = THREAD_CACHED_MUTABLE_ATTR_MAP("seed", "p", "dtype", "out_shape");
+      attrs.SetAllAttrs(static_cast<int64_t>(gen->current_seed()), p, dtype_val, out_shape);
+      OpExprInterpContext ctx(attrs, distribution_state);
+      ctx.device = JUST(self->device());
+      JUST(OpInterpUtil::Dispatch(*op_, {}, outputs.get(), ctx));
+    }
+    return outputs->at(0);
+  }
+
+ private:
+  std::shared_ptr<OpExpr> op_;
+};
+
+class BernoulliTensorInplaceFunctor {
+ public:
+  BernoulliTensorInplaceFunctor() {
+    op_ = CHECK_JUST(one::OpBuilder("bernoulli_tensor").Input("p").Output("out").Build());
+  }
+  Maybe<Tensor> operator()(const std::shared_ptr<one::Tensor>& self,
+                           const std::shared_ptr<one::Tensor>& p,
+                           const Optional<one::Generator>& generator) const {
+    DataType dtype_val = self->dtype()->data_type();
+    const Shape& out_shape = *(self->shape());
+    const auto gen = generator.value_or(JUST(one::DefaultAutoGenerator()));
+    const auto& distribution_state = std::make_shared<DistributionKernelState>(gen);
+
+    std::shared_ptr<TensorTuple> outputs = std::make_shared<TensorTuple>(1);
+    outputs->at(0) = self;
+    if (self->is_global()) {
+      const auto& placement = JUST(self->parallel_desc());
+      const auto& nd_sbp = JUST(self->nd_sbp());
+      auto& attrs = THREAD_CACHED_MUTABLE_ATTR_MAP("seed", "nd_sbp");
+
+      if (LazyMode::is_enabled()) {
+        attrs.SetAllAttrs(static_cast<int64_t>(gen->current_seed()),
+                          *JUST(GetNdSbpStrList(nd_sbp)));
+      } else {
+        attrs.SetAllAttrs(static_cast<int64_t>(gen->current_seed()), NullOpt);
+      }
+      JUST(OpInterpUtil::Dispatch(
+          *op_, {p}, outputs.get(),
+          OpExprInterpContext(attrs, placement, nd_sbp, distribution_state)));
+    } else {
+      auto& attrs = THREAD_CACHED_MUTABLE_ATTR_MAP("seed");
+      attrs.SetAllAttrs(static_cast<int64_t>(gen->current_seed()));
+      OpExprInterpContext ctx(attrs, distribution_state);
+      ctx.device = JUST(self->device());
+      JUST(OpInterpUtil::Dispatch(*op_, {p}, outputs.get(), ctx));
+    }
+    return outputs->at(0);
+  }
+
+ private:
+  std::shared_ptr<OpExpr> op_;
+};
+
+class BernoulliTensorFunctor {
+ public:
+  BernoulliTensorFunctor() {
+    op_ = CHECK_JUST(one::OpBuilder("bernoulli_tensor").Input("p").Output("out").Build());
+  }
+  Maybe<Tensor> operator()(const std::shared_ptr<one::Tensor>& p,
+                           const Optional<one::Generator>& generator) const {
+    DataType dtype_val = p->dtype()->data_type();
+    const Shape& out_shape = *(p->shape());
+    const auto gen = generator.value_or(JUST(one::DefaultAutoGenerator()));
+    const auto& distribution_state = std::make_shared<DistributionKernelState>(gen);
+
+    if (p->is_global()) {
+      const auto& placement = JUST(p->parallel_desc());
+      const auto& nd_sbp = JUST(p->nd_sbp());
+      auto& attrs = THREAD_CACHED_MUTABLE_ATTR_MAP("seed", "nd_sbp");
+
+      if (LazyMode::is_enabled()) {
+        attrs.SetAllAttrs(static_cast<int64_t>(gen->current_seed()),
+                          *JUST(GetNdSbpStrList(nd_sbp)));
+      } else {
+        attrs.SetAllAttrs(static_cast<int64_t>(gen->current_seed()), NullOpt);
+      }
+      return JUST(OpInterpUtil::Dispatch<Tensor>(
+          *op_, {p}, OpExprInterpContext(attrs, placement, nd_sbp, distribution_state)));
+    } else {
+      auto& attrs = THREAD_CACHED_MUTABLE_ATTR_MAP("seed");
+      attrs.SetAllAttrs(static_cast<int64_t>(gen->current_seed()));
+      OpExprInterpContext ctx(attrs, distribution_state);
+      ctx.device = JUST(p->device());
+      return JUST(OpInterpUtil::Dispatch<Tensor>(*op_, {p}, ctx));
+    }
+  }
+
+ private:
+  std::shared_ptr<OpExpr> op_;
+};
+
 }  // namespace impl
 
 using namespace impl;
 
 ONEFLOW_FUNCTION_LIBRARY(m) {
-  m.add_functor<BernoulliFunctor>("Bernoulli");
-  m.add_functor<BernoulliProbFunctor>("BernoulliProb");
   m.add_functor<RandPermFunctor>("RandPerm");
   m.add_functor<GlobalRandPermFunctor>("GlobalRandPerm");
   m.add_functor<RandFunctor>("Rand");
@@ -573,6 +651,9 @@ ONEFLOW_FUNCTION_LIBRARY(m) {
   m.add_functor<GlobalRandIntLikeFunctor, GlobalRandIntLike2Functor>("GlobalRandIntLike");
   m.add_functor<ExponentialFunctor>("Exponential");
   m.add_functor<MultinomialFunctor>("Multinomial");
+  m.add_functor<BernoulliScalarInplaceFunctor>("BernoulliScalarInplace");
+  m.add_functor<BernoulliTensorInplaceFunctor>("BernoulliTensorInplace");
+  m.add_functor<BernoulliTensorFunctor>("BernoulliTensor");
 };
 
 }  // namespace functional
