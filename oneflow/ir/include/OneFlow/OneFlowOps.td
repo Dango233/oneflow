@@ -289,6 +289,12 @@ def AutoNhwcPass : Pass<"auto-nhwc", "ModuleOp"> {
   let constructor = "mlir::oneflow::createAutoNhwcPass()";
 }
 
+
+def DelayNonDenseOpsPass : Pass<"delay-non-dense-ops", "ModuleOp"> {
+  let summary = "";
+  let constructor = "mlir::oneflow::createDelayNonDenseOpsPass()";
+}
+
 def PreConvertInferenceOpPass : Pass<"pre-convert-inference-op", "ModuleOp"> {
   let summary = "Convert variable op to variable ir op for constant folding.";
   let constructor = "mlir::oneflow::createPreConvertInferenceOpPass()";
