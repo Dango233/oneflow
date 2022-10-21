@@ -19,60 +19,21 @@ limitations under the License.
 #include "oneflow/user/kernels/to_contiguous_kernel.h"
 #include "oneflow/core/common/stride.h"
 #include "oneflow/core/common/nd_index_offset_helper.h"
+#include "oneflow/core/ep/include/primitive/broadcast_elementwise_unary.h"
 
 namespace oneflow {
 
-template<typename T>
-struct ToContiguousUtil<DeviceType::kCPU, T> : ToContiguousUtilBase {
-  using ToContiguousUtilBase::ToContiguousUtilBase;
-
-  static constexpr size_t dsize = sizeof(T);
-
-  void operator()() {
-    if (contiguous_dim == -1) {
-      // 0-dim tensor
-      std::memcpy(out_dptr, in_dptr, block_size * dsize);
-    } else {
-      // if input tensor's strides equals to output's, than just copy one memory-contiguous tensor
-      bool is_same = true;
-      for (int64_t i = contiguous_dim; i != -1; --i) {
-        if (out_stride[i] != in_stride[i]) {
-          is_same = false;
-          break;
-        }
-      }
-      if (is_same) {
-        std::memcpy(out_dptr + out_offset * dsize, in_dptr + in_offset * dsize,
-                    element_count * dsize);
-      } else {
-        const int64_t ndim = contiguous_dim + 1;
-        int64_t coordinates[ndim];
-        for (int64_t i = 0; i < element_count; i += block_size) {
-          memset(coordinates, 0, sizeof(int64_t) * ndim);
-          out_offset = i;
-          in_offset = 0;
-          // compute coords(output offset to coords)
-          int64_t remaining = out_offset;
-          for (int i = 0; i < ndim; ++i) {
-            const int64_t idx = remaining / out_stride[i];
-            coordinates[i] = idx;
-            remaining = remaining - idx * out_stride[i];
-          }
-          // compute input offset
-          for (int64_t dim = 0; dim < ndim; ++dim) {
-            in_offset += in_stride[dim] * coordinates[dim];
-          }
-
-          // copy block_size data to output
-          std::memcpy(out_dptr + out_offset * dsize, in_dptr + in_offset * dsize,
-                      block_size * dsize);
-        }
-      }
-    }
-  }
-};
-
 namespace {
+
+std::unique_ptr<ep::primitive::BroadcastElementwiseUnary> NewPrimitive(
+    user_op::KernelComputeContext* ctx) {
+  const auto* in_desc = ctx->TensorDesc4ArgNameAndIndex("in", 0);
+  const auto* out_desc = ctx->TensorDesc4ArgNameAndIndex("out", 0);
+  size_t max_ndim = std::max(in_desc->shape().size(), out_desc->shape().size());
+  return ep::primitive::NewPrimitive<ep::primitive::BroadcastElementwiseUnaryFactory>(
+      ctx->device_type(), ep::primitive::UnaryOp::kIdentity, in_desc->data_type(),
+      out_desc->data_type(), max_ndim);
+}
 
 template<DeviceType device_type, typename T>
 class ToContiguousKernel final : public user_op::OpKernel {
@@ -86,15 +47,14 @@ class ToContiguousKernel final : public user_op::OpKernel {
     user_op::Tensor* out = ctx->Tensor4ArgNameAndIndex("out", 0);
 
     const ShapeView& in_shape = in->shape_view();
-    CHECK_EQ(out->shape_view(), in_shape);
-    const DataType in_data_type = in->data_type();
-    CHECK_EQ(out->data_type(), in_data_type);
+    const ShapeView& out_shape = out->shape_view();
+    CHECK_EQ(out_shape, in_shape);
+    CHECK_EQ(out->data_type(), in->data_type());
 
-    std::vector<int64_t> in_stride(in->stride().begin(), in->stride().end());
-
-    const char* in_dptr = static_cast<const char*>(in->raw_dptr());
-    char* out_dptr = static_cast<char*>(out->mut_raw_dptr());
-    ToContiguousUtil<device_type, T>(ctx->stream(), in_shape, in_stride, in_dptr, out_dptr)();
+    auto prim = NewPrimitive(ctx);
+    CHECK(prim);
+    prim->Launch(ctx->stream(), in_shape.size(), in_shape.data(), in->stride().data(), in->dptr(),
+                 out_shape.size(), out_shape.data(), out->stride().data(), out->mut_dptr());
   }
 
   bool AlwaysComputeWhenAllOutputsEmpty() const override { return false; }
