@@ -98,7 +98,6 @@ Maybe<void> PruneAmpWhiteIdentityOpPass::Apply(Job* job, JobPassCtx* ctx) const 
             CHECK_EQ(GenLogicalBlobName(old_lbi), old_val);
           }
         }
-        CHECK(find_arg);
       }
     }
   }
