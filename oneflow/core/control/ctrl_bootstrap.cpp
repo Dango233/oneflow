@@ -128,6 +128,7 @@ RankInfoCtrlBootstrap::RankInfoCtrlBootstrap(const BootstrapConf& bootstrap_conf
   bootstrap_client_.reset(new RankInfoBootstrapClient(bootstrap_conf));
   VLOG(3) << "RankInfoBootstrapClient" << OF_PP_STRINGIZE(__LINE__);
   bootstrap_client_->Barrier(__FILE__ ":" OF_PP_STRINGIZE(__LINE__));
+  VLOG(3) << "after bootstrap_client_->Barrier" << OF_PP_STRINGIZE(__LINE__);
   master_host_ = bootstrap_conf.master_addr().host();
   rank_ = bootstrap_conf.rank();
   world_size_ = bootstrap_conf.world_size();
