@@ -25,10 +25,10 @@ limitations under the License.
 namespace oneflow {
 
 Maybe<void> CtrlBootstrap::InitProcessCtx(int64_t port, ProcessCtx* ret_process_ctx) {
-  VLOG(3) << "in CtrlBootstrap::InitProcessCtx";
+  LOG(WARNING) << "in CtrlBootstrap::InitProcessCtx";
   std::vector<WorkerProcessInfo> worker_process_info_list;
   worker_process_info_list.reserve(world_size());
-  VLOG(3) << "worker_process_info_list.reserve";
+  LOG(WARNING) << "worker_process_info_list.reserve";
   if (rank() == 0) {
     WorkerProcessInfo worker_process_info;
     {
@@ -56,9 +56,9 @@ Maybe<void> CtrlBootstrap::InitProcessCtx(int64_t port, ProcessCtx* ret_process_
     mut_bootstrap_client()->PushMasterKV(key, cur_work_process_info);
   }
 
-  VLOG(3) << "before mut_bootstrap_client()->Barrier";
+  LOG(WARNING) << "before mut_bootstrap_client()->Barrier";
   mut_bootstrap_client()->Barrier(__FILE__ ":" OF_PP_STRINGIZE(__LINE__));
-  VLOG(3) << "after mut_bootstrap_client()->Barrier";
+  LOG(WARNING) << "after mut_bootstrap_client()->Barrier";
 
   if (rank() == 0) {
     ret_process_ctx->set_rank(rank());
@@ -122,17 +122,18 @@ BootstrapClient* HostListCtrlBootstrap::mut_bootstrap_client() { return bootstra
 
 RankInfoCtrlBootstrap::RankInfoCtrlBootstrap(const BootstrapConf& bootstrap_conf)
     : CtrlBootstrap(), bootstrap_conf_(bootstrap_conf) {
-  VLOG(3) << "start RankInfoCtrlBootstrap";
+  LOG(WARNING) << "start RankInfoCtrlBootstrap";
   bootstrap_server_.reset(new RankInfoBootstrapServer(bootstrap_conf));
-  VLOG(3) << "RankInfoBootstrapServer" << OF_PP_STRINGIZE(__LINE__);
+  LOG(WARNING) << "RankInfoBootstrapServer" << OF_PP_STRINGIZE(__LINE__);
   bootstrap_client_.reset(new RankInfoBootstrapClient(bootstrap_conf));
-  VLOG(3) << "RankInfoBootstrapClient" << OF_PP_STRINGIZE(__LINE__);
+  LOG(WARNING) << "RankInfoBootstrapClient" << OF_PP_STRINGIZE(__LINE__);
+  LOG(WARNING) << "RankInfoBootstrapClient " << __FILE__ ":" OF_PP_STRINGIZE(__LINE__);
   bootstrap_client_->Barrier(__FILE__ ":" OF_PP_STRINGIZE(__LINE__));
-  VLOG(3) << "after bootstrap_client_->Barrier" << OF_PP_STRINGIZE(__LINE__);
+  LOG(WARNING) << "after bootstrap_client_->Barrier" << OF_PP_STRINGIZE(__LINE__);
   master_host_ = bootstrap_conf.master_addr().host();
   rank_ = bootstrap_conf.rank();
   world_size_ = bootstrap_conf.world_size();
-  VLOG(3) << "end  RankInfoCtrlBootstrap";
+  LOG(WARNING) << "end  RankInfoCtrlBootstrap";
 }
 
 RankInfoCtrlBootstrap::~RankInfoCtrlBootstrap() {
