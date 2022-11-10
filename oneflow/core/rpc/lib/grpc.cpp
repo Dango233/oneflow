@@ -33,6 +33,7 @@ Maybe<int> GetCtrlPort(const EnvDesc& env_desc) {
 
 Maybe<void> GrpcRpcManager::Bootstrap() {
   VLOG(3) << "in GrpcRpcManager::Bootstrap";
+  LOG(WARNING) << "in GrpcRpcManager::Bootstrap";
   std::shared_ptr<CtrlBootstrap> ctrl_bootstrap;
   auto& env_desc = *Singleton<EnvDesc>::Get();
   if (env_desc.has_ctrl_bootstrap_conf()) {
@@ -43,6 +44,7 @@ Maybe<void> GrpcRpcManager::Bootstrap() {
     ctrl_bootstrap.reset(new HostListCtrlBootstrap(env_desc));
   }
   VLOG(3) << "before ctrl_bootstrap->InitProcessCtx";
+  LOG(WARNING) << "before ctrl_bootstrap->InitProcessCtx";
   JUST(ctrl_bootstrap->InitProcessCtx(Singleton<CtrlServer>::Get()->port(),
                                       Singleton<ProcessCtx>::Get()));
   return Maybe<void>::Ok();
