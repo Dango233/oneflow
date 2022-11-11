@@ -26,14 +26,38 @@ from oneflow.nn.utils.clip_grad import clip_grad_norm_
 import oneflow as flow
 
 
+class ContiguousParamsUnit(object):
+    def __init__(self, bufsize, dtype, device):
+        self.bufsize = bufsize
+        self.index = (
+            0  # record the next buf position will be used while copying parameters
+        )
+        self.param_buf = flow.zeros(bufsize, dtype=dtype, device=device)
+        self.grad_buf = flow.zeros(bufsize, dtype=dtype, device=device)
+
+    def __repr__(self) -> str:
+        return str(
+            {
+                "bufsize": self.bufsize,
+                "index": self.index,
+                "param_buf": self.param_buf,
+                "grad_buf": self.grad_buf,
+            }
+        )
+
+
 class ParamGroup(object):
     def __init__(
-        self, parameters: Dict[str, Any], default_options: Dict,
+        self,
+        parameters: Dict[str, Any],
+        default_options: Dict,
+        contiguous_params: bool = False,
     ):
         # ParamGroup must be constructed by Dict["params": parameters: List[Parameter, Tensor or TensorBlock], "...": ...]
         assert isinstance(parameters, dict) and "params" in parameters
         assert not isinstance(parameters["params"], (Parameter, Tensor))
         self._parameters = list()
+
         for p in parameters["params"]:
             if isinstance(p, (Parameter, Tensor)):
                 self._parameters.append(p)
@@ -44,6 +68,12 @@ class ParamGroup(object):
                 raise ValueError(
                     "parameters in ParamGroup must be Tensor or TensorBlock."
                 )
+
+        self.contiguous_params = contiguous_params
+        if self.contiguous_params:
+            self.params_dict = dict()
+            self._contiguous_parameters = list()
+            self._make_contiguous_params(parameters)
 
         self._options = deepcopy(default_options)
         # rewrite options in default_options
@@ -60,6 +90,53 @@ class ParamGroup(object):
             self._enable_clip_grad = True
             self._options["clip_grad_max_norm"] = parameters["clip_grad_max_norm"]
             self._options["clip_grad_norm_type"] = parameters["clip_grad_norm_type"]
+
+    def _make_contiguous_params(self, parameters):
+        def numel_in_bucket(tensor: flow.Tensor):
+            def align(x: int, unit_size: int):
+                return (x + (unit_size - 1)) // unit_size * unit_size
+
+            # tensor memory should be align to 512 bytes for cuda operations,
+            # 4 is the bytes of a float number
+            # TODO(jianhao): expose the `kCudaMemAllocAlignSize` from C++ to
+            # avoid this hardcoded "512"
+            return align(tensor.numel(), 512 // 4)
+
+        for p in parameters["params"]:
+            buf_type = (p.dtype, p.device)
+            self.params_dict[buf_type] = self.params_dict.get(
+                buf_type, 0
+            ) + numel_in_bucket(p)
+
+        for (dtype, device), bufsize in self.params_dict.items():
+            self.params_dict[(dtype, device)] = ContiguousParamsUnit(
+                bufsize, dtype, device,
+            )
+
+        for p in parameters["params"]:
+            buf_type = (p.dtype, p.device)
+            size = p.numel()
+            shape = p.data.shape
+            index = self.params_dict[buf_type].index
+            assert index + size <= self.params_dict[buf_type].bufsize
+
+            self.params_dict[buf_type].param_buf[index : index + size] = (
+                p.data.detach().clone().view(-1)
+            )
+            p.data = (
+                self.params_dict[buf_type].param_buf[index : index + size].view(shape)
+            )
+            p.grad = (
+                self.params_dict[buf_type].grad_buf[index : index + size].view(shape)
+            )
+            p._is_grad_acc_inplace = True
+            self.params_dict[buf_type].index += numel_in_bucket(p)
+
+        for buf_type in self.params_dict.keys():
+            self.params_dict[buf_type].param_buf.grad = self.params_dict[
+                buf_type
+            ].grad_buf
+            self._contiguous_parameters.append(self.params_dict[buf_type].param_buf)
 
     def __getitem__(self, key):
         return self._options[key]
@@ -88,6 +165,12 @@ class ParamGroup(object):
 
     @property
     def parameters(self):
+        if self.contiguous_params:
+            return self._contiguous_parameters
+        return self._parameters
+
+    @property
+    def origin_parameters(self):
         return self._parameters
 
 
@@ -129,11 +212,11 @@ class Optimizer(object):
         self._state = dict()
         self._state["step"] = 0
 
-        self._parse_input_parameters(parameters)
+        self._parse_input_parameters(parameters, options["contiguous_params"])
 
         self.step = _decorate_step(self.step)
 
-    def add_param_group(self, param_group) -> None:
+    def add_param_group(self, param_group, contiguous_params) -> None:
         r"""
         
         Add a param group to the :class:`Optimizer` s `param_groups`.
@@ -209,7 +292,9 @@ class Optimizer(object):
         if not param_set.isdisjoint(set(param_group["params"])):
             raise ValueError("some parameters appear in more than one parameter group")
 
-        self.param_groups.append(ParamGroup(param_group, self._default_options))
+        self.param_groups.append(
+            ParamGroup(param_group, self._default_options, contiguous_params)
+        )
 
         for param in param_group["params"]:
             assert param.is_leaf, "parameters must be leaf tensor"
@@ -230,7 +315,7 @@ class Optimizer(object):
             raise ValueError(
                 "loaded state dict has a different number of parameter groups"
             )
-        param_lens = (len(g._parameters) for g in groups)
+        param_lens = (len(g.parameters) for g in groups)
         saved_lens = (len(g["params"]) for g in saved_groups)
         if any(p_len != s_len for p_len, s_len in zip(param_lens, saved_lens)):
             raise ValueError(
@@ -243,7 +328,7 @@ class Optimizer(object):
             old_id: p
             for old_id, p in zip(
                 chain.from_iterable((g["params"] for g in saved_groups)),
-                chain.from_iterable((g._parameters for g in groups)),
+                chain.from_iterable((g.parameters for g in groups)),
             )
         }
 
@@ -308,15 +393,19 @@ class Optimizer(object):
 
         def pack_group(group):
             nonlocal start_index
-            packed = {k: v for k, v in group.items() if k != "_parameters"}
+            packed = {
+                k: v
+                for k, v in group.items()
+                if k not in ["_contiguous_parameters", "_parameters", "params_dict"]
+            }
             param_mappings.update(
                 {
                     id(p): i
-                    for i, p in enumerate(group._parameters, start_index)
+                    for i, p in enumerate(group.parameters, start_index)
                     if id(p) not in param_mappings
                 }
             )
-            packed["params"] = [param_mappings[id(p)] for p in group._parameters]
+            packed["params"] = [param_mappings[id(p)] for p in group.parameters]
             start_index += len(packed["params"])
             return packed
 
@@ -361,7 +450,7 @@ class Optimizer(object):
         for param_group in self.param_groups:
             if param_group._enable_clip_grad:
                 clip_grad_norm_(
-                    param_group.parameters,
+                    param_group.origin_parameters,
                     param_group["clip_grad_max_norm"],
                     param_group["clip_grad_norm_type"],
                     error_if_nonfinite,
@@ -394,7 +483,7 @@ class Optimizer(object):
             for param in param_group.parameters:
                 param._zero_grad_(set_to_none)
 
-    def _parse_input_parameters(self, parameters):
+    def _parse_input_parameters(self, parameters, contiguous_params):
         """
         Supports such parameters:
             1. Iterator: flow.optim.SGD(module.parameters(), lr=0.1)
@@ -404,18 +493,26 @@ class Optimizer(object):
         if isinstance(parameters, collections.abc.Iterator):
             # Iterator
             self.param_groups.append(
-                ParamGroup({"params": list(parameters)}, self._default_options)
+                ParamGroup(
+                    {"params": list(parameters)},
+                    self._default_options,
+                    contiguous_params,
+                )
             )
         elif isinstance(parameters, collections.abc.Iterable):
             # List[Dict]
             if isinstance(parameters[0], dict):
                 for param in parameters:
                     assert isinstance(param, dict)
-                    self.param_groups.append(ParamGroup(param, self._default_options))
+                    self.param_groups.append(
+                        ParamGroup(param, self._default_options, contiguous_params)
+                    )
             # List[Parameter or Tensor]
             else:
                 self.param_groups.append(
-                    ParamGroup({"params": parameters}, self._default_options)
+                    ParamGroup(
+                        {"params": parameters}, self._default_options, contiguous_params
+                    )
                 )
         else:
             raise TypeError(

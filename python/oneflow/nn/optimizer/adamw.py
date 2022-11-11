@@ -121,6 +121,7 @@ class AdamW(Optimizer):
         amsgrad: bool = False,
         do_bias_correction: bool = True,
         fused: bool = False,
+        contiguous_params: bool = False,
     ):
         assert lr >= 0.0, f"Invalid learning rate: {lr}"
         assert eps >= 0.0, f"Invalid epsilon value: {eps}"
@@ -140,6 +141,7 @@ class AdamW(Optimizer):
         options["bias_correction2"] = 1.0
         options["do_bias_correction"] = do_bias_correction
         options["amsgrad"] = amsgrad
+        options["contiguous_params"] = contiguous_params
         self.fused = fused
         super().__init__(params, options)
 

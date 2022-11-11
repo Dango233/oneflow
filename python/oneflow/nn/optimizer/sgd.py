@@ -106,6 +106,7 @@ class SGD(Optimizer):
         nesterov: bool = False,
         maximize: bool = False,
         fused: bool = False,
+        contiguous_params: bool = False,
     ):
         assert lr >= 0.0, f"Invalid learning rate: {lr}"
         assert momentum >= 0.0, f"Invalid momentum: {momentum}"
@@ -121,6 +122,7 @@ class SGD(Optimizer):
         options["weight_decay"] = weight_decay
         options["nesterov"] = nesterov
         options["maximize"] = maximize
+        options["contiguous_params"] = contiguous_params
         super().__init__(params, options)
 
         self.fused = fused
