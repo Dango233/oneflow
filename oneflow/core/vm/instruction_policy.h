@@ -43,6 +43,7 @@ class InstructionPolicy {
   virtual const DependenceVector& input_dependences() const = 0;
   virtual const DependenceVector& output_dependences() const = 0;
   virtual Dependence* stream_sequential_dependence() const { return stream_sequential_dependence_; }
+  virtual void ForEachInputEagerBlobObjects(void (*DoEach)(EagerBlobObject*)) const = 0;
 
   virtual bool IsBarrier() const { return false; }
   virtual InstructionFuseType fuse_type() const { return kDisableInstructionFuse; }
@@ -50,6 +51,7 @@ class InstructionPolicy {
 
   Maybe<void> PrepareIf(Instruction* instruction) {
     OF_PROFILER_RANGE_GUARD(std::string("Prepare:") + DebugName(*instruction));
+    InitOrCheckInputBlobsMemPtrForAllocationCompuationPipelining(instruction);
     return Prepare(instruction);
   }
 
@@ -73,6 +75,7 @@ class InstructionPolicy {
   virtual void Compute(Instruction* instruction) = 0;
   virtual void InitInstructionStatus(Instruction* instruction);
   virtual void DeleteInstructionStatus(Instruction* instruction);
+  void InitOrCheckInputBlobsMemPtrForAllocationCompuationPipelining(Instruction* instruction);
 };
 
 }  // namespace vm

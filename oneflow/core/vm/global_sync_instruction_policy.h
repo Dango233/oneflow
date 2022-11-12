@@ -35,6 +35,8 @@ class GlobalSyncInstructionPolicy final : public InstructionPolicy {
     return dependences;
   }
 
+  void ForEachInputEagerBlobObjects(void (*DoEach)(EagerBlobObject*)) const override {}
+
   bool IsBarrier() const override { return true; }
 
   std::string DebugName(const vm::Instruction& instruction) const override { return "GlobalSync"; }

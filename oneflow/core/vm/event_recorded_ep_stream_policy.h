@@ -23,14 +23,11 @@ namespace vm {
 
 class EventRecordedEpStreamPolicy final : public EpStreamPolicyBase {
  public:
-  EventRecordedEpStreamPolicy(Symbol<Device> device, std::unique_ptr<vm::Allocator>&& allocator);
+  EventRecordedEpStreamPolicy(Symbol<Device> device);
   ~EventRecordedEpStreamPolicy() override = default;
 
   void InitInstructionStatus(const Stream& stream,
                              InstructionStatusBuffer* status_buffer) const override;
-
-  static std::unique_ptr<BinAllocator<ThreadSafeLock>> CreateEpBackendDeviceAllocator(
-      Symbol<Device> device);
 };
 
 }  // namespace vm

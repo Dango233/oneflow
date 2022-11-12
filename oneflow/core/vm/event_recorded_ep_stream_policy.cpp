@@ -24,8 +24,10 @@ limitations under the License.
 namespace oneflow {
 namespace vm {
 
-/*static*/ std::unique_ptr<BinAllocator<ThreadSafeLock>>
-EventRecordedEpStreamPolicy::CreateEpBackendDeviceAllocator(Symbol<Device> device) {
+namespace {
+
+std::unique_ptr<BinAllocator<ThreadSafeLock>> CreateEpBackendDeviceAllocator(
+    Symbol<Device> device) {
   DeviceType device_type = device->enum_type();
   size_t device_index = device->device_id();
   auto ep_device =
@@ -36,9 +38,10 @@ EventRecordedEpStreamPolicy::CreateEpBackendDeviceAllocator(Symbol<Device> devic
                                                         std::move(ep_backend_allocator));
 }
 
-EventRecordedEpStreamPolicy::EventRecordedEpStreamPolicy(Symbol<Device> device,
-                                                         std::unique_ptr<vm::Allocator>&& allocator)
-    : EpStreamPolicyBase(device, std::move(allocator)) {}
+}  // namespace
+
+EventRecordedEpStreamPolicy::EventRecordedEpStreamPolicy(Symbol<Device> device)
+    : EpStreamPolicyBase(device, CreateEpBackendDeviceAllocator(device)) {}
 
 void EventRecordedEpStreamPolicy::InitInstructionStatus(
     const Stream& stream, InstructionStatusBuffer* status_buffer) const {

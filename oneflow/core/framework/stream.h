@@ -68,8 +68,6 @@ extern Maybe<Symbol<Stream>> (*GetDefaultStreamByDevice)(Symbol<Device>);
 class ParallelDesc;
 extern Maybe<Symbol<Stream>> (*GetDefaultStreamByPlacement)(Symbol<ParallelDesc>);
 
-extern Maybe<Symbol<Stream>> (*GetAllocatorStream)(Symbol<Stream>);
-
 }  // namespace oneflow
 
 namespace std {
