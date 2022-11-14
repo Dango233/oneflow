@@ -217,5 +217,5 @@ def DistributedDataParallel(
                     flow._C.broadcast(x, inplace=True)
 
         module.register_forward_pre_hook(pre_forward_hook)
-
+    module._is_ddp_module = True
     return module

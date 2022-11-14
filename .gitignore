@@ -12,6 +12,7 @@ log/
 core.*
 *.pyc
 *.ipynb
+*.onerec
 /.vscode
 /.idea
 /manylinux*

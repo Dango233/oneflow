@@ -17,7 +17,7 @@ limitations under the License.
 #define ONEFLOW_CORE_EP_PRIMITIVE_FAST_INTEGER_MATH_H_
 #include "oneflow/core/common/data_type.h"
 #include <cassert>
-#include "device_functions.h" // /opt/rocm/hip/include/hip
+#include <hip/device_functions.h> // /opt/rocm/hip/include/hip
 
 namespace oneflow {
 
