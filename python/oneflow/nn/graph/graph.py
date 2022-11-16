@@ -17,6 +17,7 @@ import logging
 import os
 import sys
 import time
+import types
 import inspect
 import weakref
 from collections import OrderedDict
@@ -743,21 +744,21 @@ class Graph(object):
         oneflow._oneflow_internal.nn.graph.MarkVariableGradients(variable, gradients)
 
     @staticmethod
-    def trace(func):
+    def to_graph(func):
         """Trace a function to do static graph and run with nn.Graph.
 
-        After decorating a function with ``trace``, the function is turned into a naive `nn.Graph`.
+        After decorating a function with ``to_graph``, the function is turned into a naive `nn.Graph`.
 
         Note:
             This is just a quick way to run a simple function with nn.Graph.
-            If you want to do training or model save/load, customize a nn.Graph class instead, donot use ``trace``.
+            If you want to do training or model save/load, customize a nn.Graph class instead, donot use ``to_graph``.
 
         For example:
 
         .. code-block:: python
 
             >>> import oneflow as flow
-            >>> @flow.nn.Graph.trace
+            >>> @flow.nn.Graph.to_graph
             ... def test_func(x):
             ...     return x * 2
             >>> input = flow.tensor((1, 2), dtype=flow.float32)
@@ -766,14 +767,14 @@ class Graph(object):
             tensor([2., 4.], dtype=oneflow.float32)
 
         ..
-            Feature Stage of Feature [trace].
+            Feature Stage of Feature [to_graph].
             - Maintainer List [@strint]
             - Current Stage [Pre-alpha, note that this is an experimental feature and maybe removed without notice.]
 
         """
         assert inspect.isfunction(
             func
-        ), f"nn.Graph.trace only support function currently, so {func} must be a function."
+        ), f"nn.Graph.to_graph only support function currently, so {func} must be a function."
         graph_cls_name = func.__name__ + "_graph"
 
         def init(self):
@@ -791,7 +792,6 @@ class Graph(object):
         return a_graph
 
     def _compile(self, *args, **kwargs):
-        self.__ensure_input_tensors_contiguous(*args, **kwargs)
         _, eager_outputs = self.build_graph(*args, **kwargs)
         self.finish_complie_and_init_runtime()
         return eager_outputs
@@ -882,7 +882,64 @@ class Graph(object):
         # After compile, _additional_variable_tobe_loaded is useless.
         self._additional_variable_tobe_loaded.clear()
 
+    def _trace(self, *args, **kwargs):
+        self.__ensure_input_tensors_contiguous(*args, **kwargs)
+        self.__ensure_state_tensors_contiguous()
+
+        # Filter to get unique states in graph
+        state_op_names = self._filter_states()
+
+        self._generate_config_proto()
+
+        # Deal with parameter and buffer
+        self.__print(
+            0,
+            1,
+            self._shallow_repr()
+            + " start building graph builders of parameters and buffers.",
+        )
+        self._create_states_builder()
+        self.__print(
+            0,
+            1,
+            self._shallow_repr()
+            + " end building graph builders of parameters and buffers.",
+        )
+
+        with graph_build_util.graph_build_context(self.config.proto, self._session):
+            # Deal with inputs
+            self.__print(0, 1, self._shallow_repr() + " start building graph inputs.")
+            arg_op_names, lazy_args, lazy_kwargs, self._args_repr, _ = self.__build_io(
+                "input", graph_build_util.build_graph_input_arg, *args, **kwargs
+            )
+            self.__print(0, 1, self._shallow_repr() + " end building graph inputs.")
+
+            # Deal with module in self.build(*args)
+            self.__print(0, 1, self._shallow_repr() + " start building graph modules.")
+            outputs = self.build(*lazy_args, **lazy_kwargs)
+            self.__print(0, 1, self._shallow_repr() + " end building graph modules.")
+
+            # Deal with outputs
+            self.__print(0, 1, self._shallow_repr() + " start building graph outputs.")
+            # Always pack output to remain type of outputs
+            outputs = (outputs,)
+
+            (
+                output_op_names,
+                self._eager_outputs,
+                _,  # empty kwargs return
+                self._outs_repr,
+                out2name,
+            ) = self.__build_io("output", graph_build_util.build_graph_output, *outputs)
+
+            self.__print(0, 1, self._shallow_repr() + " end building graph outputs.")
+
+            # Save forward graph job proto
+            self._compiled_job_proto = c_api_util.GetCurrentJob()
+        self._is_compiled = True
+
     def __build_graph(self, *args, **kwargs):
+        self.__ensure_input_tensors_contiguous(*args, **kwargs)
         self.__ensure_state_tensors_contiguous()
 
         # Filter to get unique states in graph
@@ -1445,6 +1502,47 @@ class Graph(object):
             return value
 
         args_tree.map_leaf(func)
+
+def symbolic_trace(root, *args, **kwargs):
+    """
+    Symbolic tracing API
+
+    Given an nn.Module or function instance root, this function will return a Graph constructed by recording operations seen while tracing through root.
+    """
+    is_module = True
+    if isinstance(root, Module):
+        is_module = True
+    elif isinstance(root, types.FunctionType):
+        is_module = False 
+    else:
+        raise TypeError(f"nn.Graph.to_graph only support function currently, so {func} must be a function.")
+    
+    if is_module:
+        graph_cls_name = root.__class__.__name__ + "_graph"
+    else:
+        graph_cls_name = root.__name__ + "_graph"
+
+    def init(self):
+        super(graph_cls_name, self).__init__()
+
+    def build(self, *args_, **kwargs_):
+        if is_module:
+            return self.m(*args_, **kwargs_)
+        else:
+            return root(*args_, **kwargs_)
+
+    graph_cls_name = type(
+        graph_cls_name, (Graph,), {"__init__": init, "build": build,},
+    )
+
+    a_graph = graph_cls_name()
+    if isinstance(root, Module):
+        a_graph._add_module("m", root)
+    
+    if len(args) > 0 or len(kwargs) > 0:
+        a_graph._trace(*args, **kwargs)
+
+    return a_graph
 
 
 if __name__ == "__main__":
