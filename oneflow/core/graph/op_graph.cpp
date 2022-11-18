@@ -18,13 +18,10 @@ limitations under the License.
 #include "oneflow/core/job/job_builder.h"
 #include "oneflow/core/job/local_sig_infer_hint.h"
 #include "oneflow/core/job/lazy_mode.h"
-<<<<<<< HEAD
 #include "oneflow/core/common/container_util.h"
 #include "oneflow/core/persistence/tee_persistent_log_stream.h"
-=======
 #include "oneflow/core/auto_parallel/algorithm_util.h"
 #include "oneflow/core/framework/nd_sbp.h"
->>>>>>> pr9094
 
 namespace oneflow {
 
@@ -581,14 +578,12 @@ Maybe<void> OpGraph::ForEachOpNode(const std::function<Maybe<void>(const OpNode&
   return Maybe<void>::Ok();
 }
 
-<<<<<<< HEAD
 /*static*/ Maybe<void> OpGraph::WithSingleton(const Job* job,
                                               const std::function<Maybe<void>()>& Callback) {
   // new Singleton<OpGraph> and set log configs.
   Singleton<OpGraph>::New(*job);
   const JobDesc& job_desc = GlobalJobDesc();
-  if (Singleton<ResourceDesc, ForSession>::Get()->enable_debug_mode()
-      || Singleton<ResourceDesc, ForSession>::Get()->enable_dry_run()) {
+  if (Singleton<ResourceDesc, ForSession>::Get()->enable_debug_mode()) {
     TeePersistentLogStream::Create(StrCat("optimized_job", job_desc.job_id()))->Write(*job);
     Singleton<OpGraph>::Get()->ToDotWithFilePath(
         "optimized_dlnet_" + std::to_string(job_desc.job_id()) + "_op_graph.dot");
@@ -612,7 +607,8 @@ std::function<bool(const OpNode* src, const OpNode* dst)> OpGraph::cached_predic
   CHECK(static_cast<bool>(cached_predicator_is_reachable_))
       << "cached_predicator_is_reachable_ is not initialized";
   return cached_predicator_is_reachable_;
-=======
+}
+
 // Print the graph with SBP in order
 void OpGraph::PrintSBPGraphDebugInfo() const {
   // test debug
@@ -669,7 +665,6 @@ void OpGraph::PrintSBPGraphDebugInfo() const {
     }
     std::cout << std::endl;
   }
->>>>>>> pr9094
 }
 
 }  // namespace oneflow
