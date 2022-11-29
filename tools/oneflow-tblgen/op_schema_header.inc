@@ -111,7 +111,13 @@ class {{opname}} : public oneflow::{{opname}} {
   {{attr.type}} {{attr.name}}_{% if existsIn(attr, "default") %} = {{attr.default}}{% endif %};
   {% endfor %}
 };
+
 }  // namespace schema
+
+namespace user_op {
+bool Register{{opname}}();
+}  // namespace user_op
+
 {% endfor %}
 } // namespace oneflow
 )OP_SCHEMA_INC"

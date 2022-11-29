@@ -31,7 +31,10 @@ Maybe<AttrVal> {{opname}}::Attr(const std::string& attr_name) const {
 
 REGISTER_OP_SCHEMA("user.{{op.name}}", schema::{{opname}});
 
-REGISTER_USER_OP("{{op.name}}")
+namespace user_op {
+
+bool Register{{opname}}() {
+static auto r = REGISTER_USER_OP("{{op.name}}")
 {%- if op.input -%}
 {%- for input in op.input -%}
 {%- if input.is_optional -%}
@@ -113,6 +116,15 @@ REGISTER_USER_OP("{{op.name}}")
     .SetCheckAttrFn(&{{opname}}::CheckAttr)
 {%- endif -%}
 ;
+(void)r;
+return true;
+}
+
+} // namespace user_op
+
+static bool OneFlow{{opname}} = user_op::Register{{opname}}();
+
 {%- endfor %}
 } // namespace oneflow
+
 )OP_SCHEMA_INC"

@@ -67,10 +67,8 @@ struct UserOpRegisterTrigger final {
 
 }  // namespace oneflow
 
-#define REGISTER_USER_OP(name)                                                                \
-  static ::oneflow::user_op::UserOpRegisterTrigger<::oneflow::user_op::OpRegistry> OF_PP_CAT( \
-      g_register_trigger, __COUNTER__) =                                                      \
-      ::oneflow::user_op::UserOpRegistryMgr::Get().CheckAndGetOpRegistry(name)
+#define REGISTER_USER_OP(name) \
+  ::oneflow::user_op::UserOpRegistryMgr::Get().CheckAndGetOpRegistry(name)
 
 #define REGISTER_CPU_ONLY_USER_OP(name) REGISTER_USER_OP(name).SupportCpuOnly()
 
