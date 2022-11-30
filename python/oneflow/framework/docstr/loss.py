@@ -323,3 +323,61 @@ add_docstr(
 
     """,
 )
+
+add_docstr(
+    oneflow._C.ctc_loss,
+    r"""
+    ctc_loss(log_probs, targets, input_lengths, target_lengths, blank=0, zero_infinity=False, reduction="mean")
+
+    The Connectionist Temporal Classification loss.
+
+    See :class:`~oneflow.nn.CTCLoss` for details.
+
+    Args:
+        log_probs: :math:`(T, N, C)` where `C = number of characters in alphabet including blank`,
+            `T = input length`, and `N = batch size`. The logarithmized probabilities of the outputs
+            (e.g. obtained with :func:`oneflow.nn.functional.log_softmax`).
+        targets: :math:`(N, S)` or `(sum(target_lengths))`.
+            Targets cannot be blank. In the second form, the targets are assumed to be concatenated.
+        input_lengths: :math:`(N)` or :math:`()`.
+            Lengths of the inputs (must each be :math:`\leq T`)
+        target_lengths: :math:`(N)` or :math:`()`.
+            Lengths of the targets
+        blank (int, optional):
+            Blank label. Default :math:`0`.
+        reduction (str, optional): Specifies the reduction to apply to the output:
+            ``'none'`` | ``'mean'`` | ``'sum'``. ``'none'``: no reduction will be applied,
+            ``'mean'``: the output losses will be divided by the target lengths and
+            then the mean over the batch is taken, ``'sum'``: the output will be
+            summed. Default: ``'mean'``
+        zero_infinity (bool, optional):
+            Whether to zero infinite losses and the associated gradients.
+            Default: ``False``
+            Infinite losses mainly occur when the inputs are too short
+            to be aligned to the targets.
+
+    For example:
+
+    .. code-block:: python
+
+        >>> import oneflow as flow
+
+        >>> log_probs = flow.tensor(
+        ...    [
+        ...        [[-1.1031, -0.7998, -1.5200], [-0.9808, -1.1363, -1.1908]],
+        ...        [[-1.2258, -1.0665, -1.0153], [-1.1135, -1.2331, -0.9671]],
+        ...        [[-1.3348, -0.6611, -1.5118], [-0.9823, -1.2355, -1.0941]],
+        ...        [[-1.3850, -1.3273, -0.7247], [-0.8235, -1.4783, -1.0994]],
+        ...        [[-0.9049, -0.8867, -1.6962], [-1.4938, -1.3630, -0.6547]],
+        ...    ], dtype=flow.float32)
+        >>> targets = flow.tensor([[1, 2, 2], [1, 2, 2]], dtype=flow.int32)
+        >>> input_lengths = flow.tensor([5, 5], dtype=flow.int32)
+        >>> target_lengths = flow.tensor([3, 3], dtype=flow.int32)
+        >>> out = flow.nn.functional.ctc_loss(log_probs, targets, input_lengths, target_lengths)
+        >>> out
+        tensor(1.1376, dtype=oneflow.float32)
+        >>> out = flow.nn.functional.ctc_loss(log_probs, targets, input_lengths, target_lengths, reduction="sum")
+        >>> out
+        tensor(6.8257, dtype=oneflow.float32)
+    """,
+)

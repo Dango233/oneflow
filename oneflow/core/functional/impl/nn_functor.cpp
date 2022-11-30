@@ -19,6 +19,7 @@ limitations under the License.
 #include "oneflow/core/framework/op_builder.h"
 #include "oneflow/core/framework/tensor_util.h"
 #include "oneflow/core/functional/function_library.h"
+#include "oneflow/core/functional/functional_api.yaml.h"
 #include "oneflow/core/functional/sequence_function.h"
 #include "oneflow/core/functional/impl/common.h"
 #include "oneflow/core/functional/impl/unary_functor.h"
@@ -2014,8 +2015,21 @@ class CtcLossFunctor {
                            const std::shared_ptr<one::Tensor>& targets,
                            const std::shared_ptr<one::Tensor>& input_lengths,
                            const std::shared_ptr<one::Tensor>& target_lengths,
-                           const int64_t& max_target_length, const int64_t& blank,
+                           /*const int64_t& max_target_length, */ const int64_t& blank,
                            const bool& zero_infinity, const std::string& reduction) const {
+    int64_t max_target_length = 0;
+    if (targets->ndim() == 1) {
+      const auto& tensor_max = JUST(functional::ReduceMax(target_lengths, {}, false));
+      const auto& callback = [&](ep::Stream* stream,
+                                 const std::shared_ptr<vm::EagerBlobObject>& eager_blob_object) {
+        SyncAutoMemcpy(stream, &max_target_length, eager_blob_object->dptr(),
+                       sizeof(max_target_length), memory::MakeHostMemCase(),
+                       eager_blob_object->mem_case());
+      };
+      JUST(SyncAccessTensorWithTimeOut(tensor_max, callback, "const"));
+    } else {
+      max_target_length = targets->shape()->At(1);
+    }
     auto& attrs = THREAD_CACHED_MUTABLE_ATTR_MAP("max_target_length", "blank", "zero_infinity");
     attrs.SetAllAttrs(max_target_length, blank, zero_infinity);
     std::shared_ptr<one::Tensor> out;
@@ -2066,6 +2080,7 @@ class CtcLossFunctor {
       return sequence_function(functional::Clamp)
           .then(std::bind(functional::Cast, std::placeholders::_1, log_probs->dtype(),
                           /*pin_memory=*/false))
+          .then(std::bind(functional::Reshape, std::placeholders::_1, *out->shape()))
           .then([&](const std::shared_ptr<one::Tensor>& x) {
             return OpInterpUtil::Dispatch<Tensor>(*op_xdivy_, {out, x});
           })
