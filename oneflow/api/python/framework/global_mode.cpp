@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-#include <memory>
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include "oneflow/api/python/of_api_registry.h"
@@ -29,17 +28,18 @@ namespace oneflow {
 
 ONEFLOW_API_PYBIND11_MODULE("global_view", m) {
   py::class_<GlobalMode::Guard, std::shared_ptr<GlobalMode::Guard>>(m, "global_mode")
-      .def(py::init(
-          [](const bool enabled) { 
-            if (enabled) {
-              THROW(RuntimeError) << "To enable global mode, placement and sbp must be provided.";
-            }
-            return std::make_shared<GlobalMode::Guard>(enabled); }))
+      .def(py::init([](const bool enabled) {
+        if (enabled) {
+          THROW(RuntimeError) << "To enable global mode, placement and sbp must be provided.";
+        }
+        return std::make_shared<GlobalMode::Guard>(enabled);
+      }))
       .def(py::init([](const bool enabled, const Symbol<ParallelDesc>& placement,
                        const std::vector<Symbol<SbpParallel>>& sbp) {
-            if (!enabled) {
-              THROW(RuntimeError) << "To disable global mode, placement and sbp must not be provided.";
-            }
+             if (!enabled) {
+               THROW(RuntimeError)
+                   << "To disable global mode, placement and sbp must not be provided.";
+             }
              return std::make_shared<GlobalMode::Guard>(enabled, CHECK_JUST(GetNdSbp(sbp)),
                                                         placement);
            }),
@@ -56,24 +56,28 @@ ONEFLOW_API_PYBIND11_MODULE("global_view", m) {
       .def("__exit__", [](const GlobalMode::Guard& guard_obj, const py::object& type,
                           const py::object& value, const py::object& traceback) {});
 
-  m.def("current_is_enabled", []() { return GlobalMode::is_enabled(); });
-  m.def("current_sbp", []() {
-    if (!GlobalMode::is_enabled()) {
-      THROW(RuntimeError) << "Global mode is disabled, there is no sbp.";
-    }
-    const auto& nd_sbp = GlobalMode::nd_sbp();
-    auto tuple = py::tuple(nd_sbp->sbp_parallel_size());
-    for (int i = 0; i < nd_sbp->sbp_parallel_size(); ++i) {
-      tuple[i] = SymbolOf(nd_sbp->sbp_parallel(i));
-    }
-    return tuple;
-  });
-  m.def("current_placement", []() { 
-    if (!GlobalMode::is_enabled()) {
-      THROW(RuntimeError) << "Global mode is disabled, there is no placement.";
-    }
-    return GlobalMode::parallel_desc();
-  });
+  py::class_<GlobalMode, std::shared_ptr<GlobalMode>>(m, "current_global_mode")
+      .def(py::init([]() { return std::make_shared<GlobalMode>(); }))
+      .def_property_readonly("is_enabled", [](const GlobalMode& gm) { return gm.is_enabled(); })
+      .def_property_readonly("sbp",
+                             [](const GlobalMode& gm) {
+                               if (!gm.is_enabled()) {
+                                 THROW(RuntimeError)
+                                     << "Current global mode is disabled, there is no sbp.";
+                               }
+                               const auto& nd_sbp = gm.nd_sbp();
+                               auto tuple = py::tuple(nd_sbp->sbp_parallel_size());
+                               for (int i = 0; i < nd_sbp->sbp_parallel_size(); ++i) {
+                                 tuple[i] = SymbolOf(nd_sbp->sbp_parallel(i));
+                               }
+                               return tuple;
+                             })
+      .def_property_readonly("placement", [](const GlobalMode& gm) {
+        if (!gm.is_enabled()) {
+          THROW(RuntimeError) << "Current global mode is disabled, there is no placement.";
+        }
+        return gm.parallel_desc();
+      });
 }
 
 }  // namespace oneflow

@@ -13,16 +13,13 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
-import oneflow
 from oneflow.utils.global_view.to_global import to_global
 from oneflow.utils.global_view.to_local import to_local
-from oneflow._oneflow_internal.global_view import global_mode, current_is_enabled, current_sbp, current_placement
+from oneflow._oneflow_internal.global_view import global_mode, current_global_mode
 
 __all__ = [
     "to_global",
     "to_local",
     "global_mode",
-    "current_is_enabled",
-    "current_sbp",
-    "current_placement",
+    "current_global_mode",
 ]

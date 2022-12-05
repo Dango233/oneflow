@@ -20,6 +20,7 @@ limitations under the License.
 #include "oneflow/core/framework/op_expr.h"
 #include "oneflow/core/framework/placement_utils.h"
 #include "oneflow/core/functional/function_library.h"
+#include "oneflow/core/functional/functional_api.yaml.h"
 #include "oneflow/core/functional/sequence_function.h"
 #include "oneflow/core/functional/impl/unary_functor.h"
 #include "oneflow/core/ep/include/device_manager_registry.h"
@@ -162,6 +163,10 @@ class ConstantFunctor {
   ConstantFunctor() { op_ = CHECK_JUST(one::OpBuilder("constant").Output("out").Build()); }
   Maybe<Tensor> operator()(const Shape& shape, const Scalar& value, const Symbol<DType>& dtype,
                            const Optional<Symbol<Device>>& device) const {
+    if (GlobalMode::is_enabled()) {
+      return JUST(functional::GlobalConstant(shape, value, dtype, GetGlobalParallelDescFromDevice(device),
+                                          *JUST(GetSbpList(GlobalMode::nd_sbp()))));
+    }
     auto& attrs = THREAD_CACHED_MUTABLE_ATTR_MAP("shape", "dtype", "floating_value",
                                                  "is_floating_value", "integer_value");
     if (IsIntegralDataType(dtype->data_type())) {
@@ -187,13 +192,7 @@ class EmptyFunctor {
   Maybe<Tensor> operator()(const Shape& shape, const Symbol<DType>& dtype,
                            const Optional<Symbol<Device>>& device, const bool pin_memory) const {
     if (GlobalMode::is_enabled()) {
-      auto parallel_desc = GlobalMode::parallel_desc();
-      if (device.has_value()) {
-        ParallelConf parallel_conf = parallel_desc->parallel_conf();
-        parallel_conf.set_device_tag(device.value_or(Symbol<Device>())->type());
-        parallel_desc = SymbolOf(ParallelDesc(parallel_conf));
-      }
-      return JUST(functional::GlobalEmpty(shape, dtype, parallel_desc,
+      return JUST(functional::GlobalEmpty(shape, dtype, GetGlobalParallelDescFromDevice(device),
                                           *JUST(GetSbpList(GlobalMode::nd_sbp()))));
     }
     Symbol<Device> device_symbol = device.value_or(JUST(Device::New("cpu", 0)));
@@ -3562,6 +3561,31 @@ class BinCountFunctor {
   std::shared_ptr<OpExpr> weight_op_;
 };
 
+class BaddBmmFunctor {
+ public:
+  Maybe<Tensor> operator()(const std::shared_ptr<one::Tensor>& input,
+                           const std::shared_ptr<one::Tensor>& batch1,
+                           const std::shared_ptr<one::Tensor>& batch2, const double& beta,
+                           const double& alpha) const {
+    const int32_t batch1_ndim = batch1->ndim();
+    const int32_t batch2_ndim = batch2->ndim();
+    CHECK_EQ_OR_RETURN(batch1_ndim, 3) << Error::RuntimeError() << "batch1 must be a 3D tensor";
+    CHECK_EQ_OR_RETURN(batch2_ndim, 3) << Error::RuntimeError() << "batch2 must be a 3D tensor";
+    CHECK_EQ_OR_RETURN(batch1->dim(0), batch2->dim(0))
+        << Error::RuntimeError() << "batch1 and batch2 must have same number of batches, got ,"
+        << batch1->dim(0) << " and " << batch2->dim(0);
+    CHECK_EQ_OR_RETURN(batch1->dim(2), batch2->dim(1))
+        << "Incompatible matrix sizes for bmm (" << batch1->dim(1) << "x" << batch1->dim(2)
+        << " and " << batch2->dim(1) << "x" << batch2->dim(2) << ")";
+
+    // TODO(add a fuse kernel to optimize speed and bancwidth in cuda)
+    // TODO(add a fuse kernel to optimize speed and bancwidth in cuda)
+    return JUST(functional::Add(JUST(functional::ScalarMul(beta, input)),
+                                JUST(functional::BatchMatMul(batch1, batch2, false, false, alpha)),
+                                /*alpha=*/1.0, /*inplace=*/false));
+  }
+};
+
 }  // namespace impl
 
 ONEFLOW_FUNCTION_LIBRARY(m) {
@@ -3709,6 +3733,7 @@ ONEFLOW_FUNCTION_LIBRARY(m) {
   m.add_functor<impl::BinCountFunctor>("BinCount");
   m.add_functor<impl::IndexAddFunctor>("IndexAdd");
   m.add_functor<impl::IndexAddInplaceFunctor>("IndexAddInplace");
+  m.add_functor<impl::BaddBmmFunctor>("BaddBmm");
 };
 
 }  // namespace functional
