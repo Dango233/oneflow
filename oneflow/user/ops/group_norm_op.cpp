@@ -13,7 +13,6 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-#include "oneflow/core/common/data_type.pb.h"
 #include "oneflow/core/common/maybe.h"
 #include "oneflow/core/framework/framework.h"
 #include "oneflow/core/framework/op_generated.h"
@@ -183,11 +182,11 @@ oneflow::DataType InferGnParamDataType(const DataType x_data_type) {
 }
 
 /* static */ Maybe<void> GroupNormParamGradOp::InferDataType(user_op::InferContext* ctx) {
-  // const user_op::TensorDesc& dy = ctx->InputTensorDesc("dy", 0);
+  const user_op::TensorDesc& dy = ctx->InputTensorDesc("dy", 0);
   user_op::TensorDesc* dgamma = ctx->MutOutputTensorDesc("dgamma", 0);
   user_op::TensorDesc* dbeta = ctx->MutOutputTensorDesc("dbeta", 0);
-  dgamma->set_data_type(DataType::kFloat);
-  dbeta->set_data_type(DataType::kFloat);
+  dgamma->set_data_type(dy.data_type());
+  dbeta->set_data_type(dy.data_type());
 
   return Maybe<void>::Ok();
 }
