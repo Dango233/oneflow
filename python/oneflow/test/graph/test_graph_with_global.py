@@ -20,7 +20,7 @@ import numpy as np
 import oneflow as flow
 import oneflow.unittest
 from oneflow.nn.graph import GraphModule
-import oneflow.utils.global_view as global_view 
+import oneflow.utils.global_view as global_view
 from oneflow.utils.global_view import global_mode
 
 
@@ -75,14 +75,14 @@ def _test_linear_train_graph_with_ddp(test_case):
             out = linear_t_g(x)
             result_check_list.append(out)
 
-            if iter_cnt == 0:
-                if flow.env.get_rank() == 0:
-                    import traceback
+            # if iter_cnt == 0:
+            #     if flow.env.get_rank() == 0:
+            #         import traceback
 
-                    try:
-                        print(linear_t_g)
-                    except:
-                        print(traceback.format_exc())
+            #         try:
+            #             print(linear_t_g)
+            #         except:
+            #             print(traceback.format_exc())
 
         def one_eval_iter(iter_cnt=0):
             out = linear_e_g(x)
@@ -119,7 +119,6 @@ def _test_linear_train_graph_with_ddp(test_case):
                 super().__init__()
                 self.linear_dp = linear_dp
                 self.add_optimizer(of_sgd)
-                self.debug(op_repr_with_py_stack=True)
 
             def build(self, x):
                 # This is ok
@@ -179,14 +178,14 @@ def _test_linear_train_graph_with_ddp(test_case):
             out = linear_t_g(x)
             result_check_list.append(out)
 
-            if iter_cnt == 0:
-                if flow.env.get_rank() == 0:
-                    import traceback
+            # if iter_cnt == 0:
+            #     if flow.env.get_rank() == 0:
+            #         import traceback
 
-                    try:
-                        print(linear_t_g)
-                    except:
-                        print(traceback.format_exc())
+            #         try:
+            #             print(linear_t_g)
+            #         except:
+            #             print(traceback.format_exc())
 
         def one_eval_iter(iter_cnt=0):
             out = linear_e_g(x)
@@ -229,7 +228,7 @@ def _test_global_mode(test_case):
         def build(self):
             with global_mode(True, placement=P, sbp=B):
                 # Test global mode meta data
-                cur_global_mode = global_view.current_global_mode
+                cur_global_mode = global_view.current_global_mode()
                 test_case.assertTrue(cur_global_mode.is_enabled)
                 test_case.assertEqual(cur_global_mode.placement, P)
                 test_case.assertEqual(cur_global_mode.sbp[0], B)
@@ -244,7 +243,7 @@ def _test_global_mode(test_case):
                 tensor_out = flow.tensor([[1, 2, 4, 5], [4, 3, 2, 9]], dtype=flow.int)
                 hann_window_out = flow.hann_window(8, dtype=flow.float)
 
-            test_case.assertTrue(not global_view.current_global_mode.is_enabled)
+            test_case.assertTrue(not global_view.current_global_mode().is_enabled)
 
             return {
                 "randn_out": randn_out,
@@ -253,8 +252,8 @@ def _test_global_mode(test_case):
                 "randperm_out": randperm_out,
                 "arange_out": arange_out,
                 "empty_out": empty_out,
-                "tensor_out": tensor_out, 
-                "hann_window_out": hann_window_out
+                "tensor_out": tensor_out,
+                "hann_window_out": hann_window_out,
             }
 
     global_graph = GlobalModeGraph()
