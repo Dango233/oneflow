@@ -221,6 +221,9 @@ void GenChunkForMultiNNGraphMemoryReuseInMultiClient(
         ++remain_block_it;
       }
 
+      const size_t chunk_granularity =
+          ParseIntegerFromEnv("ONEFLOW_GRAPH_CHUNK_SIZE_GRANULARITY_MB", 1) * 1024 * 1024;
+      new_chunk.set_mem_size(RoundUp(new_chunk.mem_size(), chunk_granularity));
       all_chunks.emplace_back(new_chunk);
       CHECK(unique_chunk_ids.insert(new_chunk.chunk_id()).second);
 
