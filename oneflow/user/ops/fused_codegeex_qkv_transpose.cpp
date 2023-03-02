@@ -67,6 +67,17 @@ Maybe<void> FusedCodegeexQkvTransposeOp::InferDataType(user_op::InferContext* ct
 }
 
 Maybe<void> FusedCodegeexQkvTransposeOp::GetSbp(user_op::SbpContext* ctx) {
+  const user_op::TensorDesc& query = ctx->LogicalTensorDesc4InputArgNameAndIndex("query", 0);
+  FOR_RANGE(int64_t, i, 0, query.shape().NumAxes() - 1) {
+    ctx->NewBuilder()
+        .Split(user_op::OpArg("query", 0), i)
+        .Split(user_op::OpArg("key", 0), i)
+        .Split(user_op::OpArg("value", 0), i)
+        .Split(user_op::OpArg("new_query", 0), i)
+        .Split(user_op::OpArg("new_key", 0), i)
+        .Split(user_op::OpArg("new_value", 0), i)
+        .Build();
+  }
   return Maybe<void>::Ok();
 }
 
