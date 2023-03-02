@@ -3930,9 +3930,6 @@ class FusedCodegeexQkvTransposeFunctor {
   Maybe<TensorTuple> operator()(const std::shared_ptr<one::Tensor>& query,
                                 const std::shared_ptr<one::Tensor>& key,
                                 const std::shared_ptr<one::Tensor>& value,
-                                const std::shared_ptr<one::Tensor>& new_query,
-                                const std::shared_ptr<one::Tensor>& new_key,
-                                const std::shared_ptr<one::Tensor>& new_value,
                                 const int32_t num_attention_heads) const {
     auto& attrs = THREAD_CACHED_MUTABLE_ATTR_MAP("num_attention_heads");
     attrs.SetAllAttrs(num_attention_heads);

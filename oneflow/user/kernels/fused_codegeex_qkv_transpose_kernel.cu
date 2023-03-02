@@ -24,12 +24,14 @@ namespace {
 template<typename T>
 __global__ void batch_transpose(const int n, const T* query, const T* key, const T* value, T* new_query, T* new_key, T* new_value, const int seq_length, const int batch_size, const int hidden_size){
    CUDA_1D_KERNEL_LOOP(i, n) {
-    const int seq_id = i / batch_size / hidden_size;
-    const int batch_id = i / hidden_size % seq_length;
-    const int hidden_size_id = i % hidden_size;
-    new_query[i] = query[seq_id * batch_size * hidden_size + batch_id * hidden_size + hidden_size_id];
-    new_key[i] = key[seq_id * batch_size * hidden_size + batch_id * hidden_size + hidden_size_id];
-    new_value[i] = value[seq_id * batch_size * hidden_size + batch_id * hidden_size + hidden_size_id];
+    const int i_div_hidden_size = i / hidden_size;
+    const int seq_id = i_div_hidden_size / batch_size;
+    const int batch_id = i_div_hidden_size - (i_div_hidden_size / batch_size) * batch_size;
+    const int hidden_size_id = i - (i / hidden_size) * hidden_size;
+    const int src_id = seq_id * batch_size * hidden_size + batch_id * hidden_size + hidden_size_id;
+    new_query[i] = query[src_id];
+    new_key[i] = key[src_id];
+    new_value[i] = value[src_id];
    }
 }
 

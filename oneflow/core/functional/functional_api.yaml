@@ -1745,7 +1745,7 @@
   bind_python: False
 
 - name: "fused_codegeex_qkv_transpose"
-  signature: "TensorTuple (Tensor query, Tensor key, Tensor value, Tensor new_query, Tensor new_key, Tensor new_value, Int32 num_attention_heads) => FusedCodegeexQkvTranspose"
+  signature: "TensorTuple (Tensor query, Tensor key, Tensor value, Int32 num_attention_heads) => FusedCodegeexQkvTranspose"
   bind_python: True
 
 - name: "fused_get_iou"
