@@ -2816,6 +2816,7 @@ def OneFlow_FusedMultiHeadAttentionInferenceOp : OneFlow_BaseOp<"fused_multi_hea
     SI64Attr:$query_head_size,
     DefaultValuedAttr<BoolAttr, "false">:$causal,
     DefaultValuedAttr<SI64Attr, "0">:$causal_diagonal_offset,
+    DefaultValuedAttr<StrAttr, "\"top_left\"">:$causal_from,
     StrAttr:$query_layout,
     StrAttr:$key_layout,
     StrAttr:$value_layout,

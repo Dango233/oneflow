@@ -187,6 +187,7 @@ struct Params {
   int64_t v_stride_m;
   int64_t v_stride_h;
   bool causal;
+  std::string causal_from;
   int64_t causal_diagonal_offset;
   const void* query_ptr;
   const void* key_ptr;
@@ -247,7 +248,17 @@ void LaunchCutlassFmha(const Params& params, ep::CudaStream* stream) {
 
   p.scale = 1.0 / std::sqrt(float(p.head_dim));
 
-  p.causal = params.causal;
+  if (params.causal) {
+    if (params.causal_from == "top_left") {
+      p.custom_mask_type = Attention::CausalFromTopLeft;
+    } else if (params.causal_from == "bottom_right") {
+      p.custom_mask_type = Attention::CausalFromBottomRight;
+    } else {
+      UNIMPLEMENTED();
+    }
+  } else {
+    p.custom_mask_type = Attention::NoCustomMask;
+  }
   p.causal_diagonal_offset = params.causal_diagonal_offset;
   p.use_dropout = false;
 
@@ -359,6 +370,7 @@ class FusedMultiHeadAttentionInferenceKernel final : public user_op::OpKernel,
     CHECK_EQ(out->data_type(), data_type);
     const int64_t query_head_size = ctx->Attr<int64_t>("query_head_size");
     const bool causal = ctx->Attr<bool>("causal");
+    const std::string& causal_from = ctx->Attr<std::string>("causal_from");
     const int64_t causal_diagonal_offset = ctx->Attr<int64_t>("causal_diagonal_offset");
     CHECK_GE(causal_diagonal_offset, 0);
     const std::string& query_layout = ctx->Attr<std::string>("query_layout");
@@ -494,7 +506,9 @@ class FusedMultiHeadAttentionInferenceKernel final : public user_op::OpKernel,
     params.workspace = tmp->mut_dptr();
     params.workspace_size = tmp_buffer_size;
     params.causal = causal;
+    params.causal_from = causal_from;
     params.causal_diagonal_offset = causal_diagonal_offset;
+    params.causal_from = causal_from;
     if (attn_bias != nullptr) {
       const int64_t num_attn_bias_axes = attn_bias->shape_view().NumAxes();
       CHECK_GE(num_attn_bias_axes, 1);

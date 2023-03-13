@@ -61,6 +61,7 @@ Pattern {
     replace out_reshape with CopyUserOpAttrs(out, op<oneflow.fused_multi_head_attention_inference>(query, key, value) {
       causal = attr<"false : bool">,
       causal_diagonal_offset = attr<"0 : si64">,
+      causal_from = attr<"\"top_left\"">,
       query_head_size = GetHeadSizeFromTranpose(query_transpose),
       query_layout = attr<"\"BM(HK)\"">,
       key_layout = attr<"\"BM(HK)\"">,
@@ -103,6 +104,7 @@ Pattern {
     replace out_reshape with CopyUserOpAttrs(out, op<oneflow.fused_multi_head_attention_inference>(query, key, value) {
       causal = attr<"false : bool">,
       causal_diagonal_offset = attr<"0 : si64">,
+      causal_from = attr<"\"top_left\"">,
       query_head_size = GetHeadSizeFromTranpose(query_permute),
       query_layout = attr<"\"BM(HK)\"">,
       key_layout = attr<"\"BM(HK)\"">,
