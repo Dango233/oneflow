@@ -160,9 +160,9 @@ class FusedMultiHeadAttentionInferenceFunctor {
     CHECK_EQ_OR_RETURN(query_hidden_size % num_heads, 0)
         << "The hidden size of the query tensor should be a multiple of num_heads.";
     const int64_t query_head_size = query_hidden_size / num_heads;
-    return functional::FusedMultiHeadAttentionInferenceV2(query, "BM(HK)", query_head_size, key,
-                                                          "BM(HK)", value, "BM(HK)", attn_bias,
-                                                          "BM(HK)", causal, causal_diagonal_offset);
+    return functional::FusedMultiHeadAttentionInferenceV2(
+        query, "BM(HK)", query_head_size, key, "BM(HK)", value, "BM(HK)", attn_bias, "BM(HK)",
+        causal, "top_left", causal_diagonal_offset);
   }
 };
 
@@ -183,15 +183,13 @@ class FusedMultiHeadAttentionInferenceV2Functor {
                                         .Output("out")
                                         .Build());
   }
-  Maybe<Tensor> operator()(const std::shared_ptr<one::Tensor>& query,
-                           const std::string& query_layout,
-                           const Optional<int64_t>& query_head_size,
-                           const Optional<one::Tensor>& key,
-                           const Optional<std::string>& key_layout,
-                           const Optional<one::Tensor>& value,
-                           const Optional<std::string>& value_layout,
-                           const Optional<one::Tensor>& attn_bias, const std::string& output_layout,
-                           const bool& causal, const int64_t& causal_diagonal_offset) const {
+  Maybe<Tensor> operator()(
+      const std::shared_ptr<one::Tensor>& query, const std::string& query_layout,
+      const Optional<int64_t>& query_head_size, const Optional<one::Tensor>& key,
+      const Optional<std::string>& key_layout, const Optional<one::Tensor>& value,
+      const Optional<std::string>& value_layout, const Optional<one::Tensor>& attn_bias,
+      const std::string& output_layout, const bool& causal, const std::string& causal_from,
+      const int64_t& causal_diagonal_offset) const {
     CHECK_GE_OR_RETURN(causal_diagonal_offset, 0)
         << "The value of causal_diagonal_offset should be greater or equal to 0.";
 
@@ -308,9 +306,9 @@ class FusedMultiHeadAttentionInferenceV2Functor {
     }
     auto& attrs = THREAD_CACHED_MUTABLE_ATTR_MAP("query_layout", "key_layout", "value_layout",
                                                  "output_layout", "query_head_size", "causal",
-                                                 "causal_diagonal_offset");
+                                                 "causal_from", "causal_diagonal_offset");
     attrs.SetAllAttrs(query_layout, key_tensor_layout, value_tensor_layout, op_output_layout, q_k,
-                      causal, causal_diagonal_offset);
+                      causal, causal_from, causal_diagonal_offset);
     std::shared_ptr<one::Tensor> op_output;
     if (attn_bias) {
       op_output = JUST(OpInterpUtil::Dispatch<Tensor>(
