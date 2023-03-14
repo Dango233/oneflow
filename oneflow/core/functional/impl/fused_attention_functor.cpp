@@ -162,7 +162,7 @@ class FusedMultiHeadAttentionInferenceFunctor {
     const int64_t query_head_size = query_hidden_size / num_heads;
     return functional::FusedMultiHeadAttentionInferenceV2(
         query, "BM(HK)", query_head_size, key, "BM(HK)", value, "BM(HK)", attn_bias, "BM(HK)",
-        causal, "top_left", causal_diagonal_offset);
+        causal, Optional<std::string>(), causal_diagonal_offset);
   }
 };
 
@@ -188,8 +188,21 @@ class FusedMultiHeadAttentionInferenceV2Functor {
       const Optional<int64_t>& query_head_size, const Optional<one::Tensor>& key,
       const Optional<std::string>& key_layout, const Optional<one::Tensor>& value,
       const Optional<std::string>& value_layout, const Optional<one::Tensor>& attn_bias,
-      const std::string& output_layout, const bool& causal, const std::string& causal_from,
-      const int64_t& causal_diagonal_offset) const {
+      const std::string& output_layout, const Optional<bool>& causal,
+      const Optional<std::string>& attn_mask_type, const int64_t& causal_diagonal_offset) const {
+    std::string attn_mask_type_val = "none";
+    if (attn_mask_type) {
+      CHECK(!causal) << "Only one of attn_mask_type and causal can be specified at the same time.";
+      attn_mask_type_val = *JUST(attn_mask_type);
+      CHECK_OR_RETURN(attn_mask_type_val == "none" || attn_mask_type_val == "causal_from_top_left"
+                      || attn_mask_type_val == "causal_from_bottom_right")
+          << "The value of attn_mask_type should be one of 'none', 'causal_from_top_left' or "
+             "'causal_from_bottom_right'";
+    } else if (causal && JUST(causal)) {
+      attn_mask_type_val = "causal_from_top_left";
+    } else {
+      // do nothing
+    }
     CHECK_GE_OR_RETURN(causal_diagonal_offset, 0)
         << "The value of causal_diagonal_offset should be greater or equal to 0.";
 
@@ -305,10 +318,10 @@ class FusedMultiHeadAttentionInferenceV2Functor {
       UNIMPLEMENTED_THEN_RETURN() << "output_layout should be 'BM(HK)' or 'MB(HK)'";
     }
     auto& attrs = THREAD_CACHED_MUTABLE_ATTR_MAP("query_layout", "key_layout", "value_layout",
-                                                 "output_layout", "query_head_size", "causal",
-                                                 "causal_from", "causal_diagonal_offset");
+                                                 "output_layout", "query_head_size",
+                                                 "attn_mask_type", "causal_diagonal_offset");
     attrs.SetAllAttrs(query_layout, key_tensor_layout, value_tensor_layout, op_output_layout, q_k,
-                      causal, causal_from, causal_diagonal_offset);
+                      attn_mask_type_val, causal_diagonal_offset);
     std::shared_ptr<one::Tensor> op_output;
     if (attn_bias) {
       op_output = JUST(OpInterpUtil::Dispatch<Tensor>(

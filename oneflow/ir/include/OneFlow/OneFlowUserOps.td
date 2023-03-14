@@ -2814,9 +2814,8 @@ def OneFlow_FusedMultiHeadAttentionInferenceOp : OneFlow_BaseOp<"fused_multi_hea
   );
   let attrs = (ins
     SI64Attr:$query_head_size,
-    DefaultValuedAttr<BoolAttr, "false">:$causal,
     DefaultValuedAttr<SI64Attr, "0">:$causal_diagonal_offset,
-    DefaultValuedAttr<StrAttr, "\"top_left\"">:$causal_from,
+    DefaultValuedAttr<StrAttr, "\"none\"">:$attn_mask_type,
     StrAttr:$query_layout,
     StrAttr:$key_layout,
     StrAttr:$value_layout,

@@ -25,13 +25,24 @@ import oneflow as flow
 
 
 def _ref(
-    query, key, value, num_heads, causal=False, attn_bias=None, causal_diagonal_offset=0
+    query,
+    key,
+    value,
+    num_heads,
+    attn_mask_type="none",
+    attn_bias=None,
+    causal_diagonal_offset=0,
 ):
     query = query.permute(0, 2, 1, 3)
     key = key.permute(0, 2, 3, 1)
     value = value.permute(0, 2, 1, 3)
     scores = flow.matmul(query, key) / math.sqrt(query.shape[-1])
-    if causal:
+    if attn_mask_type == "causal_from_bottom_right":
+        causal_diagonal_offset += key.shape[-1] - query.shape[-2]
+    if (
+        attn_mask_type == "causal_from_top_left"
+        or attn_mask_type == "causal_from_bottom_right"
+    ):
         causal_mask = flow.triu(
             flow.ones(
                 scores.shape[-2], scores.shape[-1], dtype=flow.bool, device="cuda"
@@ -88,7 +99,7 @@ def _fused_mha(
     key,
     value,
     num_heads,
-    causal=False,
+    attn_mask_type="none",
     attn_bias=None,
     causal_diagonal_offset=0,
     query_layout="BM(HK)",
@@ -109,7 +120,7 @@ def _fused_mha(
         key=key,
         value=value,
         query_head_size=query_head_size,
-        causal=causal,
+        attn_mask_type=attn_mask_type,
         attn_bias=attn_bias,
         causal_diagonal_offset=causal_diagonal_offset,
         query_layout=query_layout,
@@ -194,7 +205,7 @@ def _test_fused_multi_head_attention_inference(
     query_head_size,
     value_head_size,
     dtype,
-    causal=False,
+    attn_mask_type="none",
     causal_diagonal_offset=0,
     query_layout="BM(HK)",
     key_layout="BM(HK)",
@@ -222,7 +233,7 @@ def _test_fused_multi_head_attention_inference(
         key,
         value,
         num_heads,
-        causal,
+        attn_mask_type=attn_mask_type,
         causal_diagonal_offset=causal_diagonal_offset,
         query_layout=query_layout,
         key_layout=key_layout,
@@ -234,7 +245,7 @@ def _test_fused_multi_head_attention_inference(
         key,
         value,
         num_heads,
-        causal,
+        attn_mask_type=attn_mask_type,
         causal_diagonal_offset=causal_diagonal_offset,
     ).numpy()
 
@@ -250,7 +261,7 @@ def _test_fused_multi_head_attention_inference_with_attn_bias(
     query_head_size,
     value_head_size,
     dtype,
-    causal=False,
+    attn_mask_type="none",
 ):
 
     query = flow.randn(
@@ -270,22 +281,34 @@ def _test_fused_multi_head_attention_inference_with_attn_bias(
     ).to(dtype)
 
     attn_bias = flow.randn((kv_seq_len,), device="cuda", dtype=flow.float).to(dtype)
-    ref_out = _ref(query, key, value, num_heads, causal, attn_bias).numpy()
-    fused_out = _fused_mha(query, key, value, num_heads, causal, attn_bias).numpy()
+    ref_out = _ref(
+        query, key, value, num_heads, attn_bias=attn_bias, attn_mask_type=attn_mask_type
+    ).numpy()
+    fused_out = _fused_mha(
+        query, key, value, num_heads, attn_bias=attn_bias, attn_mask_type=attn_mask_type
+    ).numpy()
     test_case.assertTrue(np.allclose(ref_out, fused_out, atol=1e-2, rtol=1e-2))
 
     attn_bias = flow.randn(
         (query_seq_len, kv_seq_len), device="cuda", dtype=flow.float
     ).to(dtype)
-    ref_out = _ref(query, key, value, num_heads, causal, attn_bias).numpy()
-    fused_out = _fused_mha(query, key, value, num_heads, causal, attn_bias).numpy()
+    ref_out = _ref(
+        query, key, value, num_heads, attn_bias=attn_bias, attn_mask_type=attn_mask_type
+    ).numpy()
+    fused_out = _fused_mha(
+        query, key, value, num_heads, attn_bias=attn_bias, attn_mask_type=attn_mask_type
+    ).numpy()
     test_case.assertTrue(np.allclose(ref_out, fused_out, atol=1e-2, rtol=1e-2))
 
     attn_bias = flow.randn(
         (num_heads, query_seq_len, kv_seq_len), device="cuda", dtype=flow.float
     ).to(dtype)
-    ref_out = _ref(query, key, value, num_heads, causal, attn_bias).numpy()
-    fused_out = _fused_mha(query, key, value, num_heads, causal, attn_bias).numpy()
+    ref_out = _ref(
+        query, key, value, num_heads, attn_bias=attn_bias, attn_mask_type=attn_mask_type
+    ).numpy()
+    fused_out = _fused_mha(
+        query, key, value, num_heads, attn_bias=attn_bias, attn_mask_type=attn_mask_type
+    ).numpy()
     test_case.assertTrue(np.allclose(ref_out, fused_out, atol=1e-2, rtol=1e-2))
 
     attn_bias = flow.randn(
@@ -293,19 +316,27 @@ def _test_fused_multi_head_attention_inference_with_attn_bias(
         device="cuda",
         dtype=flow.float,
     ).to(dtype)
-    ref_out = _ref(query, key, value, num_heads, causal, attn_bias).numpy()
-    fused_out = _fused_mha(query, key, value, num_heads, causal, attn_bias).numpy()
+    ref_out = _ref(
+        query, key, value, num_heads, attn_bias=attn_bias, attn_mask_type=attn_mask_type
+    ).numpy()
+    fused_out = _fused_mha(
+        query, key, value, num_heads, attn_bias=attn_bias, attn_mask_type=attn_mask_type
+    ).numpy()
     test_case.assertTrue(np.allclose(ref_out, fused_out, atol=1e-2, rtol=1e-2))
 
     attn_bias = flow.randn(
         (num_heads, 1, kv_seq_len), device="cuda", dtype=flow.float
     ).to(dtype)
-    ref_out = _ref(query, key, value, num_heads, causal, attn_bias).numpy()
-    fused_out = _fused_mha(query, key, value, num_heads, causal, attn_bias).numpy()
+    ref_out = _ref(
+        query, key, value, num_heads, attn_bias=attn_bias, attn_mask_type=attn_mask_type
+    ).numpy()
+    fused_out = _fused_mha(
+        query, key, value, num_heads, attn_bias=attn_bias, attn_mask_type=attn_mask_type
+    ).numpy()
     test_case.assertTrue(np.allclose(ref_out, fused_out, atol=1e-2, rtol=1e-2))
 
 
-@unittest.skipIf(True, "skip test")
+# @unittest.skipIf(True, "skip test")
 @flow.unittest.skip_unless_1n1d()
 class TestFusedMultiHeadAttentionInference(flow.unittest.TestCase):
     def test_multi_head_attention_inference(test_case):
@@ -356,7 +387,7 @@ class TestFusedMultiHeadAttentionInference(flow.unittest.TestCase):
             16,
             16,
             flow.float,
-            causal=True,
+            attn_mask_type="causal_from_top_left",
             causal_diagonal_offset=4,
         )
 
@@ -369,10 +400,10 @@ class TestFusedMultiHeadAttentionInference(flow.unittest.TestCase):
             test_case, 2, 8, 4096, 4096, 40, 40, flow.float
         )
         _test_fused_multi_head_attention_inference_with_attn_bias(
-            test_case, 2, 8, 4096, 4096, 40, 40, flow.float16, True
+            test_case, 2, 8, 4096, 4096, 40, 40, flow.float16, "causal_from_top_left"
         )
         _test_fused_multi_head_attention_inference_with_attn_bias(
-            test_case, 2, 8, 4096, 4096, 40, 40, flow.float, True
+            test_case, 2, 8, 4096, 4096, 40, 40, flow.float, "causal_from_bottom_right"
         )
         _test_fused_multi_head_attention_inference_with_attn_bias(
             test_case, 2, 8, 4096, 80, 40, 40, flow.float16
@@ -381,13 +412,16 @@ class TestFusedMultiHeadAttentionInference(flow.unittest.TestCase):
             test_case, 2, 8, 4096, 80, 40, 40, flow.float
         )
         _test_fused_multi_head_attention_inference_with_attn_bias(
-            test_case, 2, 8, 4096, 80, 40, 40, flow.float16, True
+            test_case, 2, 8, 4096, 80, 40, 40, flow.float16, "causal_from_top_left"
         )
         _test_fused_multi_head_attention_inference_with_attn_bias(
-            test_case, 2, 8, 4096, 80, 40, 40, flow.float, True
+            test_case, 2, 8, 80, 4096, 40, 40, flow.float16, "causal_from_bottom_right"
         )
         _test_fused_multi_head_attention_inference_with_attn_bias(
-            test_case, 2, 8, 4096, 77, 40, 40, flow.float, True
+            test_case, 2, 8, 4096, 80, 40, 40, flow.float, "causal_from_top_left"
+        )
+        _test_fused_multi_head_attention_inference_with_attn_bias(
+            test_case, 2, 8, 4096, 77, 40, 40, flow.float, "causal_from_top_left"
         )
 
     def test_multi_head_attention_inference_with_layout(test_case):

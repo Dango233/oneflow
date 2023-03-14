@@ -186,8 +186,7 @@ struct Params {
   int64_t v_stride_b;
   int64_t v_stride_m;
   int64_t v_stride_h;
-  bool causal;
-  std::string causal_from;
+  std::string attn_mask_type;
   int64_t causal_diagonal_offset;
   const void* query_ptr;
   const void* key_ptr;
@@ -248,16 +247,14 @@ void LaunchCutlassFmha(const Params& params, ep::CudaStream* stream) {
 
   p.scale = 1.0 / std::sqrt(float(p.head_dim));
 
-  if (params.causal) {
-    if (params.causal_from == "top_left") {
-      p.custom_mask_type = Attention::CausalFromTopLeft;
-    } else if (params.causal_from == "bottom_right") {
-      p.custom_mask_type = Attention::CausalFromBottomRight;
-    } else {
-      UNIMPLEMENTED();
-    }
-  } else {
+  if (params.attn_mask_type == "none") {
     p.custom_mask_type = Attention::NoCustomMask;
+  } else if (params.attn_mask_type == "causal_from_top_left") {
+    p.custom_mask_type = Attention::CausalFromTopLeft;
+  } else if (params.attn_mask_type == "causal_from_bottom_right") {
+    p.custom_mask_type = Attention::CausalFromBottomRight;
+  } else {
+    UNIMPLEMENTED();
   }
   p.causal_diagonal_offset = params.causal_diagonal_offset;
   p.use_dropout = false;
@@ -369,8 +366,7 @@ class FusedMultiHeadAttentionInferenceKernel final : public user_op::OpKernel,
     CHECK_EQ(value->data_type(), data_type);
     CHECK_EQ(out->data_type(), data_type);
     const int64_t query_head_size = ctx->Attr<int64_t>("query_head_size");
-    const bool causal = ctx->Attr<bool>("causal");
-    const std::string& causal_from = ctx->Attr<std::string>("causal_from");
+    const std::string& attn_mask_type = ctx->Attr<std::string>("attn_mask_type");
     const int64_t causal_diagonal_offset = ctx->Attr<int64_t>("causal_diagonal_offset");
     CHECK_GE(causal_diagonal_offset, 0);
     const std::string& query_layout = ctx->Attr<std::string>("query_layout");
@@ -445,8 +441,8 @@ class FusedMultiHeadAttentionInferenceKernel final : public user_op::OpKernel,
                                          && (key_layout == "BMHK" || key_layout == "BM(HK)")
                                          && (value_layout == "BMHK" || value_layout == "BM(HK)");
     if (enable_trt_flash_attn && data_type == DataType::kFloat16 && q_m == k_m && q_k == v_k
-        && is_trt_supported_head_size && is_long_seq_len && is_trt_supported_arch && (!causal)
-        && attn_bias == nullptr && is_trt_supported_layout) {
+        && is_trt_supported_head_size && is_long_seq_len && is_trt_supported_arch
+        && attn_mask_type == "none" && attn_bias == nullptr && is_trt_supported_layout) {
       // The fmha implementation below is based on TensorRT's multiHeadFlashAttentionPlugin
       // implementation at:
       // https://github.com/NVIDIA/TensorRT/tree/main/plugin/multiHeadFlashAttentionPlugin
@@ -505,10 +501,8 @@ class FusedMultiHeadAttentionInferenceKernel final : public user_op::OpKernel,
     const int64_t tmp_buffer_size = tmp->shape_view().elem_cnt();
     params.workspace = tmp->mut_dptr();
     params.workspace_size = tmp_buffer_size;
-    params.causal = causal;
-    params.causal_from = causal_from;
+    params.attn_mask_type = attn_mask_type;
     params.causal_diagonal_offset = causal_diagonal_offset;
-    params.causal_from = causal_from;
     if (attn_bias != nullptr) {
       const int64_t num_attn_bias_axes = attn_bias->shape_view().NumAxes();
       CHECK_GE(num_attn_bias_axes, 1);
