@@ -161,34 +161,61 @@ class FusedMultiHeadAttentionInferenceFunctor {
         << "The hidden size of the query tensor should be a multiple of num_heads.";
     const int64_t query_head_size = query_hidden_size / num_heads;
     return functional::FusedMultiHeadAttentionInferenceV2(
-        query, "BM(HK)", query_head_size, key, "BM(HK)", value, "BM(HK)", attn_bias, "BM(HK)",
-        causal, Optional<std::string>(), causal_diagonal_offset);
+        query, "BM(HK)", query_head_size, Optional<one::Tensor>(), Optional<int64_t>(), key,
+        "BM(HK)", Optional<one::Tensor>(), Optional<one::Tensor>(), Optional<int64_t>(), value,
+        "BM(HK)", attn_bias, "BM(HK)", Optional<float>(), causal, Optional<std::string>(),
+        causal_diagonal_offset);
   }
 };
 
 class FusedMultiHeadAttentionInferenceV2Functor {
  public:
+  struct OpExprCacheKey {
+    bool has_attn_bias = false;
+    bool has_seq_start = false;
+    bool has_key_seq_len = false;
+    bool operator==(const OpExprCacheKey& rhs) const {
+      return this->has_attn_bias == rhs.has_attn_bias && this->has_seq_start == rhs.has_seq_start
+             && this->has_key_seq_len == rhs.has_key_seq_len;
+    }
+  };
+  struct OpExprCacheKeyHash {
+    size_t operator()(const OpExprCacheKey& key) const {
+      return Hash(key.has_attn_bias, key.has_seq_start, key.has_key_seq_len);
+    }
+  };
+  using OpExprCache =
+      std::unordered_map<OpExprCacheKey, std::shared_ptr<OpExpr>, OpExprCacheKeyHash>;
   FusedMultiHeadAttentionInferenceV2Functor() {
-    op_ = CHECK_JUST(one::OpBuilder("fused_multi_head_attention_inference")
-                         .Input("query")
-                         .Input("key")
-                         .Input("value")
-                         .Output("out")
-                         .Build());
-    op_with_attn_bias_ = CHECK_JUST(one::OpBuilder("fused_multi_head_attention_inference")
-                                        .Input("query")
-                                        .Input("key")
-                                        .Input("value")
-                                        .Input("attn_bias")
-                                        .Output("out")
-                                        .Build());
+    for (bool has_attn_bias : {false, true}) {
+      for (bool has_seq_start : {false, true}) {
+        for (bool has_key_seq_len : {false, true}) {
+          auto builder = one::OpBuilder("fused_multi_head_attention_inference")
+                             .Input("query")
+                             .Input("key")
+                             .Input("value");
+          if (has_attn_bias) { builder.Input("attn_bias"); }
+          if (has_seq_start) { builder.Input("query_seq_start").Input("key_seq_start"); }
+          if (has_key_seq_len) { builder.Input("key_seq_len"); }
+          auto op = CHECK_JUST(builder.Output("out").Build());
+          OpExprCacheKey key;
+          key.has_attn_bias = has_attn_bias;
+          key.has_seq_start = has_seq_start;
+          key.has_key_seq_len = has_key_seq_len;
+          op_cache_.emplace(key, op);
+        }
+      }
+    }
   }
   Maybe<Tensor> operator()(
       const std::shared_ptr<one::Tensor>& query, const std::string& query_layout,
-      const Optional<int64_t>& query_head_size, const Optional<one::Tensor>& key,
-      const Optional<std::string>& key_layout, const Optional<one::Tensor>& value,
-      const Optional<std::string>& value_layout, const Optional<one::Tensor>& attn_bias,
-      const std::string& output_layout, const Optional<bool>& causal,
+      const Optional<int64_t>& query_head_size, const Optional<one::Tensor>& query_seq_start,
+      const Optional<int64_t>& query_max_seq_len, const Optional<one::Tensor>& key,
+      const Optional<std::string>& key_layout, const Optional<one::Tensor>& key_seq_start,
+      const Optional<one::Tensor>& key_seq_len, const Optional<int64_t>& key_max_seq_len,
+      const Optional<one::Tensor>& value, const Optional<std::string>& value_layout,
+      const Optional<one::Tensor>& attn_bias, const std::string& output_layout,
+      const Optional<float>& scale, const Optional<bool>& causal,
       const Optional<std::string>& attn_mask_type, const int64_t& causal_diagonal_offset) const {
     std::string attn_mask_type_val = "none";
     if (attn_mask_type) {
@@ -322,14 +349,36 @@ class FusedMultiHeadAttentionInferenceV2Functor {
                                                  "attn_mask_type", "causal_diagonal_offset");
     attrs.SetAllAttrs(query_layout, key_tensor_layout, value_tensor_layout, op_output_layout, q_k,
                       attn_mask_type_val, causal_diagonal_offset);
-    std::shared_ptr<one::Tensor> op_output;
+    OpExprCacheKey cache_key{};
+    std::vector<std::shared_ptr<one::Tensor>> inputs;
+    inputs.emplace_back(query);
+    inputs.emplace_back(key_tensor);
+    inputs.emplace_back(value_tensor);
     if (attn_bias) {
-      op_output = JUST(OpInterpUtil::Dispatch<Tensor>(
-          *op_with_attn_bias_, {query, key_tensor, value_tensor, JUST(attn_bias)}, attrs));
+      inputs.emplace_back(JUST(attn_bias));
+      cache_key.has_attn_bias = true;
     } else {
-      op_output =
-          JUST(OpInterpUtil::Dispatch<Tensor>(*op_, {query, key_tensor, value_tensor}, attrs));
+      cache_key.has_attn_bias = false;
     }
+    if (query_seq_start && key_seq_start) {
+      inputs.emplace_back(JUST(query_seq_start));
+      inputs.emplace_back(JUST(key_seq_start));
+      cache_key.has_seq_start = true;
+    } else {
+      cache_key.has_seq_start = false;
+    }
+    if (key_seq_len) {
+      inputs.emplace_back(JUST(key_seq_len));
+      cache_key.has_key_seq_len = true;
+    } else {
+      cache_key.has_key_seq_len = false;
+    }
+    auto it = op_cache_.find(cache_key);
+    CHECK_OR_RETURN(it != op_cache_.end());
+    TensorTuple input_tuple(inputs.size());
+    for (int i = 0; i < inputs.size(); ++i) { input_tuple[i] = std::move(inputs[i]); }
+    std::shared_ptr<one::Tensor> op_output =
+        JUST(OpInterpUtil::Dispatch<Tensor>(*it->second, input_tuple, attrs));
     if (op_output_layout == output_layout) {
       return op_output;
     } else {
@@ -342,8 +391,7 @@ class FusedMultiHeadAttentionInferenceV2Functor {
   }
 
  private:
-  std::shared_ptr<OpExpr> op_;
-  std::shared_ptr<OpExpr> op_with_attn_bias_;
+  OpExprCache op_cache_;
 };
 
 class FusedAttentionConcatPastKeyValueFunctor {

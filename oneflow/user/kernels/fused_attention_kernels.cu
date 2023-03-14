@@ -439,7 +439,8 @@ class FusedMultiHeadAttentionInferenceKernel final : public user_op::OpKernel,
     const bool is_long_seq_len = q_m >= 512;
     const bool is_trt_supported_layout = (query_layout == "BMHK" || query_layout == "BM(HK)")
                                          && (key_layout == "BMHK" || key_layout == "BM(HK)")
-                                         && (value_layout == "BMHK" || value_layout == "BM(HK)");
+                                         && (value_layout == "BMHK" || value_layout == "BM(HK)")
+                                         && (output_layout == "BMHK" || output_layout == "BM(HK)");
     if (enable_trt_flash_attn && data_type == DataType::kFloat16 && q_m == k_m && q_k == v_k
         && is_trt_supported_head_size && is_long_seq_len && is_trt_supported_arch
         && attn_mask_type == "none" && attn_bias == nullptr && is_trt_supported_layout) {
