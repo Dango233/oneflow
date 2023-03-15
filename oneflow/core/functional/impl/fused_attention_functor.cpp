@@ -93,6 +93,13 @@ Maybe<void> ParseDims(const std::string& name, const Shape& shape, const std::st
       } else {
         UNIMPLEMENTED_THEN_RETURN();
       }
+    } else if (layout == "(BM)HK") {
+      CHECK_OR_RETURN(batch_size);
+      CHECK_OR_RETURN(seq_len);
+      *b = JUST(batch_size);
+      *m = JUST(seq_len);
+      *h = shape.At(1);
+      *k = shape.At(2);
     } else {
       UNIMPLEMENTED_THEN_RETURN()
           << name
@@ -257,6 +264,10 @@ class FusedMultiHeadAttentionInferenceV2Functor {
     if (query_seq_start) {
       CHECK_OR_RETURN(key_seq_start) << "The tensors query_seq_start and key_seq_start should both "
                                         "be None or both not be None at the same time.";
+      CHECK_OR_RETURN(query_max_seq_len)
+          << "query_max_seq_len should not be None when query_seq_start is not None.";
+      CHECK_OR_RETURN(key_max_seq_len)
+          << "key_max_seq_len should not be None when key_seq_start is not None.";
       query_seq_start_tensor = JUST(query_seq_start);
       key_seq_start_tensor = JUST(key_seq_start);
       CHECK_EQ_OR_RETURN(query_seq_start_tensor->shape()->NumAxes(), 1)
@@ -276,8 +287,8 @@ class FusedMultiHeadAttentionInferenceV2Functor {
     int64_t q_m = 0;
     int64_t q_h = 0;
     int64_t q_k = 0;
-    JUST(ParseDims("query", *query->shape(), query_layout, Optional<int64_t>(), query_head_size,
-                   &q_b, &q_m, &q_h, &q_k));
+    JUST(ParseDims("query", *query->shape(), query_layout, batch_size, query_max_seq_len,
+                   Optional<int64_t>(), query_head_size, &q_b, &q_m, &q_h, &q_k));
     CHECK_EQ_OR_RETURN(q_k % 8, 0)
         << "The size of dimension 'K' of the query tensor should be a multiple of 8.";
 
@@ -288,8 +299,8 @@ class FusedMultiHeadAttentionInferenceV2Functor {
     if (key) {
       key_tensor = JUST(key);
       key_tensor_layout = *JUST(key_layout);
-      JUST(ParseDims("key", *key_tensor->shape(), key_tensor_layout, Optional<int64_t>(), q_k, &k_b,
-                     &k_m, &k_h, &k_k));
+      JUST(ParseDims("key", *key_tensor->shape(), key_tensor_layout, q_b, key_max_seq_len,
+                     Optional<int64_t>(), q_k, &k_b, &k_m, &k_h, &k_k));
       CHECK_EQ_OR_RETURN(k_b, q_b) << "The size of dimension 'B' of the key tensor should be the "
                                       "same as that of the query tensor.";
       CHECK_EQ_OR_RETURN(k_h, q_h) << "The size of dimension 'H' of the key tensor should be the "
@@ -314,8 +325,8 @@ class FusedMultiHeadAttentionInferenceV2Functor {
     if (value) {
       value_tensor = JUST(value);
       value_tensor_layout = *JUST(value_layout);
-      JUST(ParseDims("value", *value_tensor->shape(), value_tensor_layout, q_h, Optional<int64_t>(),
-                     &v_b, &v_m, &v_h, &v_k));
+      JUST(ParseDims("value", *value_tensor->shape(), value_tensor_layout, q_b, k_m, q_h,
+                     Optional<int64_t>(), &v_b, &v_m, &v_h, &v_k));
       CHECK_EQ_OR_RETURN(v_b, q_b) << "The size of dimension 'B' of the value tensor should be the "
                                       "same as that of the query tensor.";
       CHECK_EQ_OR_RETURN(v_m, k_m) << "The size of dimension 'M' of the value tensor should be the "
@@ -367,7 +378,7 @@ class FusedMultiHeadAttentionInferenceV2Functor {
     }
 
     std::string op_output_layout;
-    if (output_layout == "BM(HK)") {
+    if (output_layout == "BM(HK)" || output_layout == "(BM)(HK)") {
       op_output_layout = output_layout;
     } else if (output_layout == "MB(HK)") {
       if (q_b == 1) {
@@ -376,13 +387,13 @@ class FusedMultiHeadAttentionInferenceV2Functor {
         op_output_layout = "BM(HK)";
       }
     } else {
-      UNIMPLEMENTED_THEN_RETURN() << "output_layout should be 'BM(HK)' or 'MB(HK)'";
+      UNIMPLEMENTED_THEN_RETURN() << "output_layout should be 'BM(HK)', 'MB(HK)' or (BM)(HK)";
     }
-    auto& attrs = THREAD_CACHED_MUTABLE_ATTR_MAP("query_layout", "key_layout", "value_layout",
-                                                 "output_layout", "query_head_size",
-                                                 "attn_mask_type", "causal_diagonal_offset");
+    auto& attrs = THREAD_CACHED_MUTABLE_ATTR_MAP(
+        "query_layout", "key_layout", "value_layout", "output_layout", "query_head_size",
+        "attn_mask_type", "causal_diagonal_offset", "query_max_seq_len", "key_max_seq_len");
     attrs.SetAllAttrs(query_layout, key_tensor_layout, value_tensor_layout, op_output_layout, q_k,
-                      attn_mask_type_val, causal_diagonal_offset);
+                      attn_mask_type_val, causal_diagonal_offset, q_m, k_m);
     OpExprCacheKey cache_key{};
     std::vector<std::shared_ptr<one::Tensor>> inputs;
     inputs.emplace_back(query);

@@ -138,13 +138,11 @@ def _fused_mha(
     key_seq_len=None,
 ):
     query_head_size = query.shape[-1]
+    query_max_seq_len = query.shape[1]
+    key_max_seq_len = key.shape[1]
     ts = [query, key, value]
     query = _to_layout(ts, query_layout, 0, query_seq_len)
-    print(query_seq_len)
-    print(query.shape)
     key = _to_layout(ts, key_layout, 1, key_seq_len)
-    print(key_seq_len)
-    print(key.shape)
     value = _to_layout(ts, value_layout, 2, key_seq_len)
     if query_seq_len is not None:
         query_seq_start = (
@@ -154,6 +152,7 @@ def _fused_mha(
         )
     else:
         query_seq_start = None
+        query_max_seq_len = None
     if key_seq_len is not None:
         key_seq_start = (
             flow.cumsum(flow.pad(key_seq_len, (1, 0)), dim=-1)
@@ -162,6 +161,7 @@ def _fused_mha(
         )
     else:
         key_seq_start = None
+        key_max_seq_len = None
     if attn_bias is not None and attn_bias.shape[-1] % 8 != 0:
         pad = 8 - attn_bias.shape[-1] % 8
         attn_bias = flow.pad(attn_bias, (0, pad), "constant", 0)
@@ -179,8 +179,10 @@ def _fused_mha(
         output_layout=output_layout,
         query_seq_start=query_seq_start,
         key_seq_start=key_seq_start,
+        query_max_seq_len=query_max_seq_len,
+        key_max_seq_len=key_max_seq_len,
     )
-    if output_layout == "BM(HK)":
+    if output_layout == "BM(HK)" or output_layout == "(BM)(HK)":
         return output
     elif output_layout == "MB(HK)":
         return output.transpose(0, 1)
@@ -416,14 +418,14 @@ def _test_fused_multi_head_attention_inference_variable_length(
         dtype=flow.float,
     ).to(dtype)
 
-    query_seq_len = flow.randint(
+    query_seq_len_t = flow.randint(
         low=1,
         high=query.shape[1],
         size=(query.shape[0],),
         device="cuda",
         dtype=flow.int32,
     )
-    key_seq_len = flow.randint(
+    key_seq_len_t = flow.randint(
         low=1, high=key.shape[1], size=(key.shape[0],), device="cuda", dtype=flow.int32
     )
 
@@ -437,10 +439,10 @@ def _test_fused_multi_head_attention_inference_variable_length(
         query_layout="(BM)HK",
         key_layout="(BM)HK",
         value_layout="(BM)HK",
-        output_layout="(BM)HK",
-        query_seq_len=query_seq_len,
-        key_seq_len=key_seq_len,
-    ).numpy()
+        output_layout="(BM)(HK)",
+        query_seq_len=query_seq_len_t,
+        key_seq_len=key_seq_len_t,
+    )
     ref_out = _ref(
         query,
         key,
@@ -448,11 +450,16 @@ def _test_fused_multi_head_attention_inference_variable_length(
         num_heads,
         attn_mask_type=attn_mask_type,
         causal_diagonal_offset=causal_diagonal_offset,
-        query_seq_len=query_seq_len,
-        key_seq_len=key_seq_len,
-    ).numpy()
+        query_seq_len=query_seq_len_t,
+        key_seq_len=key_seq_len_t,
+    )
+    ref_out = ref_out.view(batch_size, query_seq_len, num_heads, value_head_size)
+    ref_out = _to_layout([ref_out], "(BM)HK", 0, seq_len=query_seq_len_t)
+    ref_out = ref_out.view(ref_out.shape[0], -1)
 
-    test_case.assertTrue(np.allclose(ref_out, fused_out, atol=1e-2, rtol=1e-2))
+    test_case.assertTrue(
+        np.allclose(ref_out.numpy(), fused_out.numpy(), atol=1e-2, rtol=1e-2)
+    )
 
 
 # @unittest.skipIf(True, "skip test")

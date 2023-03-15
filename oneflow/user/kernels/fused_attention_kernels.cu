@@ -33,6 +33,7 @@ namespace user_op {
 namespace {
 
 void ParseDims(const ShapeView& shape, const std::string& layout,
+               const Optional<int64_t>& batch_size, const Optional<int64_t>& seq_len,
                const Optional<int64_t>& num_heads, const Optional<int64_t>& head_size,
                int64_t tensor_index, int64_t* b, int64_t* m, int64_t* h, int64_t* k,
                int64_t* b_stride, int64_t* m_stride, int64_t* h_stride, int64_t* offset) {
@@ -97,6 +98,51 @@ void ParseDims(const ShapeView& shape, const std::string& layout,
       } else {
         UNIMPLEMENTED();
       }
+    } else if (layout == "(BM)HK") {
+      CHECK(batch_size);
+      CHECK(seq_len);
+      *b = CHECK_JUST(batch_size);
+      *m = CHECK_JUST(seq_len);
+      *h = shape.At(1);
+      *k = shape.At(2);
+      *h_stride = *k;
+      *m_stride = *h_stride * *h;
+      *b_stride = 0;
+    } else if (layout == "(BM)(HK)") {
+      CHECK(batch_size);
+      CHECK(seq_len);
+      *b = CHECK_JUST(batch_size);
+      *m = CHECK_JUST(seq_len);
+      const int64_t packed_n = 1;
+      const int64_t hidden_size = shape.At(1);
+      if (num_heads) {
+        const int64_t expected_h = CHECK_JUST(num_heads);
+        const int64_t packed_h = packed_n * expected_h;
+        CHECK_EQ(hidden_size % packed_h, 0);
+        *h = expected_h;
+        *k = hidden_size / packed_h;
+      } else if (head_size) {
+        const int64_t expected_k = CHECK_JUST(head_size);
+        const int64_t packed_k = packed_n * expected_k;
+        CHECK_EQ(hidden_size % packed_k, 0);
+        *h = hidden_size / packed_k;
+        *k = expected_k;
+      } else {
+        UNIMPLEMENTED();
+      }
+      *h_stride = *k * packed_n;
+      *m_stride = *h_stride * *h;
+      *b_stride = 0;
+      if (packed_n == 1) {
+        *offset = 0;
+      } else if (packed_n == 2) {
+        CHECK_GE(tensor_index, 1);
+        *offset = (tensor_index - 1) * *k;
+      } else if (packed_n == 3) {
+        *offset = tensor_index * *k;
+      } else {
+        UNIMPLEMENTED();
+      }
     } else {
       UNIMPLEMENTED();
     }
@@ -128,18 +174,34 @@ void ParseDims(const ShapeView& shape, const std::string& layout,
     } else {
       UNIMPLEMENTED();
     }
-    if (num_heads) {
-      const int64_t expected_h = CHECK_JUST(num_heads);
-      CHECK_EQ(*h, expected_h);
-    }
-    if (head_size) {
-      const int64_t expected_k = CHECK_JUST(head_size);
-      CHECK_EQ(*k, expected_k);
-    }
     *offset = 0;
   } else {
     UNIMPLEMENTED();
   };
+  if (batch_size) {
+    const int64_t expected_b = CHECK_JUST(batch_size);
+    CHECK_EQ(*b, expected_b);
+  }
+  if (seq_len) {
+    const int64_t expected_m = CHECK_JUST(seq_len);
+    CHECK_EQ(*m, expected_m);
+  }
+  if (num_heads) {
+    const int64_t expected_h = CHECK_JUST(num_heads);
+    CHECK_EQ(*h, expected_h);
+  }
+  if (head_size) {
+    const int64_t expected_k = CHECK_JUST(head_size);
+    CHECK_EQ(*k, expected_k);
+  }
+}
+
+void ParseDims(const ShapeView& shape, const std::string& layout,
+               const Optional<int64_t>& num_heads, const Optional<int64_t>& head_size,
+               int64_t tensor_index, int64_t* b, int64_t* m, int64_t* h, int64_t* k,
+               int64_t* b_stride, int64_t* m_stride, int64_t* h_stride, int64_t* offset) {
+  ParseDims(shape, layout, Optional<int64_t>(), Optional<int64_t>(), num_heads, head_size,
+            tensor_index, b, m, h, k, b_stride, m_stride, h_stride, offset);
 }
 
 template<typename T, int pack_size>
@@ -192,6 +254,8 @@ struct Params {
   const void* key_ptr;
   const void* value_ptr;
   const void* attn_bias_ptr;
+  const void* query_seq_start_ptr;
+  const void* key_seq_start_ptr;
   int64_t attn_bias_stride_b;
   int64_t attn_bias_stride_h;
   int64_t attn_bias_stride_m;
@@ -213,6 +277,10 @@ void LaunchCutlassFmha(const Params& params, ep::CudaStream* stream) {
   p.key_ptr = const_cast<T*>(reinterpret_cast<const T*>(params.key_ptr));
   p.value_ptr = const_cast<T*>(reinterpret_cast<const T*>(params.value_ptr));
   p.attn_bias_ptr = const_cast<T*>(reinterpret_cast<const T*>(params.attn_bias_ptr));
+  p.seqstart_q_ptr =
+      const_cast<int32_t*>(reinterpret_cast<const int32_t*>(params.query_seq_start_ptr));
+  p.seqstart_k_ptr =
+      const_cast<int32_t*>(reinterpret_cast<const int32_t*>(params.key_seq_start_ptr));
   p.logsumexp_ptr = nullptr;
   p.output_ptr = reinterpret_cast<T*>(params.out_ptr);
   if (Attention::kNeedsOutputAccumulatorBuffer) {
@@ -359,6 +427,19 @@ class FusedMultiHeadAttentionInferenceKernel final : public user_op::OpKernel,
     const Tensor* value = ctx->Tensor4ArgNameAndIndex("value", 0);
     const Tensor* attn_bias = nullptr;
     if (ctx->has_input("attn_bias", 0)) { attn_bias = ctx->Tensor4ArgNameAndIndex("attn_bias", 0); }
+    const Tensor* query_seq_start = nullptr;
+    const Tensor* key_seq_start = nullptr;
+    if (ctx->has_input("query_seq_start", 0)) {
+      CHECK(ctx->has_input("key_seq_start", 0));
+      query_seq_start = ctx->Tensor4ArgNameAndIndex("query_seq_start", 0);
+      key_seq_start = ctx->Tensor4ArgNameAndIndex("key_seq_start", 0);
+      CHECK(query_seq_start->data_type() == DataType::kInt32);
+      CHECK(key_seq_start->data_type() == DataType::kInt32);
+      CHECK_EQ(query_seq_start->shape_view().NumAxes(), 1);
+      CHECK(query_seq_start->shape_view() == key_seq_start->shape_view());
+    } else {
+      CHECK(!ctx->has_input("key_seq_start", 0));
+    }
     Tensor* out = ctx->Tensor4ArgNameAndIndex("out", 0);
     Tensor* tmp = ctx->Tensor4ArgNameAndIndex("tmp_buffer", 0);
     const DataType data_type = query->data_type();
@@ -374,6 +455,9 @@ class FusedMultiHeadAttentionInferenceKernel final : public user_op::OpKernel,
     const std::string& value_layout = ctx->Attr<std::string>("value_layout");
     const std::string& output_layout = ctx->Attr<std::string>("output_layout");
 
+    Optional<int64_t> batch_size;
+    if (query_seq_start != nullptr) { batch_size = query_seq_start->shape_view().At(0) - 1; }
+
     int64_t q_b = 0;
     int64_t q_m = 0;
     int64_t q_h = 0;
@@ -382,8 +466,9 @@ class FusedMultiHeadAttentionInferenceKernel final : public user_op::OpKernel,
     int64_t q_m_stride = 0;
     int64_t q_h_stride = 0;
     int64_t q_offset = 0;
-    ParseDims(query->shape_view(), query_layout, Optional<int64_t>(), query_head_size, 0, &q_b,
-              &q_m, &q_h, &q_k, &q_b_stride, &q_m_stride, &q_h_stride, &q_offset);
+    ParseDims(query->shape_view(), query_layout, batch_size,
+              ctx->Attr<int64_t>("query_max_seq_len"), Optional<int64_t>(), query_head_size, 0,
+              &q_b, &q_m, &q_h, &q_k, &q_b_stride, &q_m_stride, &q_h_stride, &q_offset);
 
     int64_t k_b = 0;
     int64_t k_m = 0;
@@ -393,8 +478,9 @@ class FusedMultiHeadAttentionInferenceKernel final : public user_op::OpKernel,
     int64_t k_m_stride = 0;
     int64_t k_h_stride = 0;
     int64_t k_offset = 0;
-    ParseDims(key->shape_view(), key_layout, Optional<int64_t>(), query_head_size, 1, &k_b, &k_m,
-              &k_h, &k_k, &k_b_stride, &k_m_stride, &k_h_stride, &k_offset);
+    ParseDims(key->shape_view(), key_layout, q_b, ctx->Attr<int64_t>("key_max_seq_len"),
+              Optional<int64_t>(), query_head_size, 1, &k_b, &k_m, &k_h, &k_k, &k_b_stride,
+              &k_m_stride, &k_h_stride, &k_offset);
     CHECK_EQ(k_b, q_b);
     CHECK_EQ(k_h, q_h);
 
@@ -406,20 +492,26 @@ class FusedMultiHeadAttentionInferenceKernel final : public user_op::OpKernel,
     int64_t v_m_stride = 0;
     int64_t v_h_stride = 0;
     int64_t v_offset = 0;
-    ParseDims(value->shape_view(), value_layout, q_h, Optional<int64_t>(), 2, &v_b, &v_m, &v_h,
-              &v_k, &v_b_stride, &v_m_stride, &v_h_stride, &v_offset);
+    ParseDims(value->shape_view(), value_layout, q_b, k_m, q_h, Optional<int64_t>(), 2, &v_b, &v_m,
+              &v_h, &v_k, &v_b_stride, &v_m_stride, &v_h_stride, &v_offset);
     CHECK_EQ(v_b, q_b);
     CHECK_EQ(v_m, k_m);
-    CHECK_EQ(out->shape_view().NumAxes(), 3);
     if (output_layout == "BM(HK)") {
+      CHECK_EQ(out->shape_view().NumAxes(), 3);
       CHECK_EQ(out->shape_view().At(0), q_b);
       CHECK_EQ(out->shape_view().At(1), q_m);
       CHECK_EQ(out->shape_view().At(2), q_h * v_k);
     } else if (output_layout == "MB(HK)") {
+      CHECK_EQ(out->shape_view().NumAxes(), 3);
       CHECK_EQ(q_b, 1);
       CHECK_EQ(out->shape_view().At(0), q_m);
       CHECK_EQ(out->shape_view().At(1), q_b);
       CHECK_EQ(out->shape_view().At(2), q_h * v_k);
+    } else if (output_layout == "(BM)(HK)") {
+      CHECK_EQ(out->shape_view().NumAxes(), 2);
+      CHECK(query_layout == "(BM)HK");
+      CHECK_EQ(out->shape_view().At(0), query->shape_view().At(0));
+      CHECK_EQ(out->shape_view().At(1), q_h * v_k);
     } else {
       UNIMPLEMENTED();
     }
@@ -441,9 +533,10 @@ class FusedMultiHeadAttentionInferenceKernel final : public user_op::OpKernel,
                                          && (key_layout == "BMHK" || key_layout == "BM(HK)")
                                          && (value_layout == "BMHK" || value_layout == "BM(HK)")
                                          && (output_layout == "BMHK" || output_layout == "BM(HK)");
-    if (enable_trt_flash_attn && data_type == DataType::kFloat16 && q_m == k_m && q_k == v_k
-        && is_trt_supported_head_size && is_long_seq_len && is_trt_supported_arch
-        && attn_mask_type == "none" && attn_bias == nullptr && is_trt_supported_layout) {
+    if (query_seq_start == nullptr && key_seq_start == nullptr && enable_trt_flash_attn
+        && data_type == DataType::kFloat16 && q_m == k_m && q_k == v_k && is_trt_supported_head_size
+        && is_long_seq_len && is_trt_supported_arch && attn_mask_type == "none"
+        && attn_bias == nullptr && is_trt_supported_layout) {
       // The fmha implementation below is based on TensorRT's multiHeadFlashAttentionPlugin
       // implementation at:
       // https://github.com/NVIDIA/TensorRT/tree/main/plugin/multiHeadFlashAttentionPlugin
@@ -498,6 +591,9 @@ class FusedMultiHeadAttentionInferenceKernel final : public user_op::OpKernel,
     params.query_ptr = query->dptr<char>() + q_offset * GetSizeOfDataType(data_type);
     params.key_ptr = key->dptr<char>() + k_offset * GetSizeOfDataType(data_type);
     params.value_ptr = value->dptr<char>() + v_offset * GetSizeOfDataType(data_type);
+    params.query_seq_start_ptr =
+        query_seq_start == nullptr ? nullptr : query_seq_start->dptr<int32_t>();
+    params.key_seq_start_ptr = key_seq_start == nullptr ? nullptr : key_seq_start->dptr<int32_t>();
     params.out_ptr = out->mut_dptr();
     const int64_t tmp_buffer_size = tmp->shape_view().elem_cnt();
     params.workspace = tmp->mut_dptr();
