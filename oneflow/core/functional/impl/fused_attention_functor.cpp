@@ -37,6 +37,7 @@ namespace impl {
 namespace {
 
 Maybe<void> ParseDims(const std::string& name, const Shape& shape, const std::string& layout,
+                      const Optional<int64_t>& batch_size, const Optional<int64_t>& seq_len,
                       const Optional<int64_t>& num_heads, const Optional<int64_t>& head_size,
                       int64_t* b, int64_t* m, int64_t* h, int64_t* k) {
   if (shape.NumAxes() == 3) {
@@ -120,21 +121,38 @@ Maybe<void> ParseDims(const std::string& name, const Shape& shape, const std::st
           << name << "_layout should be 'BMHK', 'BHMK' or 'MBHK' when the number of dimensions of "
           << name << " tensor is 4.";
     }
-    if (num_heads) {
-      const int64_t expected_h = JUST(num_heads);
-      CHECK_EQ_OR_RETURN(*h, expected_h)
-          << "The size of dimension 'H' of " << name << " tensor should be " << expected_h << ".";
-    }
-    if (head_size) {
-      const int64_t expected_k = JUST(head_size);
-      CHECK_EQ_OR_RETURN(*k, expected_k)
-          << "The size of dimension 'K' of " << name << " tensor should be " << expected_k << ".";
-    }
   } else {
     UNIMPLEMENTED_THEN_RETURN() << "The number of dimensions of the " << name
                                 << " tensor should be 3 or 4";
   };
+  if (batch_size) {
+    const int64_t expected_b = JUST(batch_size);
+    CHECK_EQ_OR_RETURN(*b, expected_b)
+        << "The size of dimension 'B' of " << name << " tensor should be " << expected_b << ".";
+  }
+  if (seq_len) {
+    const int64_t expected_m = JUST(seq_len);
+    CHECK_EQ_OR_RETURN(*m, expected_m)
+        << "The size of dimension 'M' of " << name << " tensor should be " << expected_m << ".";
+  }
+  if (num_heads) {
+    const int64_t expected_h = JUST(num_heads);
+    CHECK_EQ_OR_RETURN(*h, expected_h)
+        << "The size of dimension 'H' of " << name << " tensor should be " << expected_h << ".";
+  }
+  if (head_size) {
+    const int64_t expected_k = JUST(head_size);
+    CHECK_EQ_OR_RETURN(*k, expected_k)
+        << "The size of dimension 'K' of " << name << " tensor should be " << expected_k << ".";
+  }
   return Maybe<void>::Ok();
+}
+
+Maybe<void> ParseDims(const std::string& name, const Shape& shape, const std::string& layout,
+                      const Optional<int64_t>& num_heads, const Optional<int64_t>& head_size,
+                      int64_t* b, int64_t* m, int64_t* h, int64_t* k) {
+  return ParseDims(name, shape, layout, Optional<int64_t>(), Optional<int64_t>(), num_heads,
+                   head_size, b, m, h, k);
 }
 
 }  // namespace
@@ -233,6 +251,22 @@ class FusedMultiHeadAttentionInferenceV2Functor {
     CHECK_GE_OR_RETURN(causal_diagonal_offset, 0)
         << "The value of causal_diagonal_offset should be greater or equal to 0.";
 
+    Optional<int64_t> batch_size;
+    std::shared_ptr<one::Tensor> query_seq_start_tensor;
+    std::shared_ptr<one::Tensor> key_seq_start_tensor;
+    if (query_seq_start) {
+      CHECK_OR_RETURN(key_seq_start) << "The tensors query_seq_start and key_seq_start should both "
+                                        "be None or both not be None at the same time.";
+      query_seq_start_tensor = JUST(query_seq_start);
+      key_seq_start_tensor = JUST(key_seq_start);
+      CHECK_EQ_OR_RETURN(query_seq_start_tensor->shape()->NumAxes(), 1)
+          << "The number of dimensions of query_seq_start tensor should be 1.";
+      CHECK_OR_RETURN(*query_seq_start_tensor->shape() == *key_seq_start_tensor->shape())
+          << "The shapes of the query_seq_start and key_seq_start tensors should match.";
+      CHECK_GT_OR_RETURN(query_seq_start_tensor->shape()->At(0), 1)
+          << "The size of query_seq_start should be greater than 1.";
+      batch_size = query_seq_start_tensor->shape()->At(0) - 1;
+    }
     std::shared_ptr<one::Tensor> key_tensor;
     std::string key_tensor_layout;
     std::shared_ptr<one::Tensor> value_tensor;

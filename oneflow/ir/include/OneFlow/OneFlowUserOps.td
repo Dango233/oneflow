@@ -2802,12 +2802,15 @@ def OneFlow_FusedCrossFeatureInteractionV2GradOp : OneFlow_BaseOp<"fused_cross_f
   let has_data_type_infer_fn = 1;
 }
 
-def OneFlow_FusedMultiHeadAttentionInferenceOp : OneFlow_BaseOp<"fused_multi_head_attention_inference", [NoSideEffect, DeclareOpInterfaceMethods<UserOpCompatibleInterface>]> {
+def OneFlow_FusedMultiHeadAttentionInferenceOp : OneFlow_BaseOp<"fused_multi_head_attention_inference", [NoSideEffect, AttrSizedOperandSegments, DeclareOpInterfaceMethods<UserOpCompatibleInterface>]> {
   let input = (ins
     OneFlow_Tensor:$query,
     OneFlow_Tensor:$key,
     OneFlow_Tensor:$value,
-    Optional<OneFlow_Tensor>:$attn_bias
+    Optional<OneFlow_Tensor>:$attn_bias,
+    Optional<OneFlow_Tensor>:$query_seq_start,
+    Optional<OneFlow_Tensor>:$key_seq_start,
+    Optional<OneFlow_Tensor>:$key_seq_len
   );
   let output = (outs
     OneFlow_Tensor:$out
