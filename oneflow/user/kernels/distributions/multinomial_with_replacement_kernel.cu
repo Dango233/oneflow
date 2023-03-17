@@ -156,5 +156,6 @@ class MultinomialWithReplacementGpuKernel final : public user_op::OpKernel {
 
 REGISTER_MULTINOMIAL_WITH_REPLACEMENT_GPU_KERNEL(float)
 REGISTER_MULTINOMIAL_WITH_REPLACEMENT_GPU_KERNEL(double)
+REGISTER_MULTINOMIAL_WITH_REPLACEMENT_GPU_KERNEL(half)
 
 }  // namespace oneflow
