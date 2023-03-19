@@ -81,11 +81,11 @@ __inline__ __device__ T Div(T a, T b);
 
 template<>
 __inline__ __device__ float Div<float>(float a, float b) {
-#ifdef OF_LAYER_NORM_USE_FAST_MATH
-  return __fdividef(a, b);
-#else
+// #ifdef OF_LAYER_NORM_USE_FAST_MATH
+//   return __fdividef(a, b);
+// #else
   return a / b;
-#endif
+// #endif
 }
 
 template<>
@@ -98,11 +98,11 @@ __inline__ __device__ T Rsqrt(T x);
 
 template<>
 __inline__ __device__ float Rsqrt<float>(float x) {
-#ifdef OF_LAYER_NORM_USE_FAST_MATH
-  return __frsqrt_rn(x);
-#else
+// #ifdef OF_LAYER_NORM_USE_FAST_MATH
+//   return __frsqrt_rn(x);
+// #else
   return rsqrt(x);
-#endif
+// #endif
 }
 
 template<>
@@ -308,6 +308,21 @@ __inline__ __device__ void WelfordBlockAllReduce(T thread_mean, T thread_m2, T t
     count_shared[wid] = warp_count;
   }
   __syncthreads();
+
+#ifdef WITH_ROCM
+  if (threadIdx.x < blockDim.x / kWarpSize) {
+    warp_mean = mean_shared[lid];
+    warp_m2 = m2_shared[lid];
+    warp_count = count_shared[lid];
+  } else {
+    warp_mean = static_cast<T>(0);
+    warp_m2 = static_cast<T>(0);
+    warp_count = static_cast<T>(0);
+  }
+  __syncthreads();
+
+  if (wid == 0) {
+#else
   if (wid == 0) {
     if (threadIdx.x < blockDim.x / kWarpSize) {
       warp_mean = mean_shared[lid];
@@ -318,10 +333,7 @@ __inline__ __device__ void WelfordBlockAllReduce(T thread_mean, T thread_m2, T t
       warp_m2 = static_cast<T>(0);
       warp_count = static_cast<T>(0);
     }
-    #ifdef WITH_ROCM
-__syncthreads();
-#else
-__syncwarp();
+  __syncwarp();
 #endif
     T block_mean = 0;
     T block_m2 = 0;
@@ -869,7 +881,7 @@ inline GPU(Error_t) LaunchLayerNormBlockUncachedImpl(GPU(Stream_t) stream, LOAD 
                                                     const double epsilon, ComputeType* mean,
                                                     ComputeType* inv_variance) {
   constexpr int block_size = 1024;
-  constexpr int waves = 32;
+  constexpr int waves = 64;
   int grid_dim_x;
   {
     GPU(Error_t) err =

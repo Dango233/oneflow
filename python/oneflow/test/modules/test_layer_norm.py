@@ -207,7 +207,7 @@ class TestLayerNorm(flow.unittest.TestCase):
             dtype=flow.float16,
         )
         _test_layer_norm(
-            test_case, shape=[8, 1024], normalized_shape=[1024], dtype=flow.double
+            test_case, shape=[8, 1024], normalized_shape=[1024], dtype=flow.float32
         )
 
 
