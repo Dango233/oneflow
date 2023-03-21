@@ -457,7 +457,11 @@ inline GPU(Error_t) LaunchLayerNormWarpImpl(GPU(Stream_t) stream, LOAD load, STO
                                            const double epsilon, ComputeType* mean,
                                            ComputeType* inv_variance) {
   constexpr int block_size = 128;
+#ifdef WITH_ROCM 
   constexpr int waves = 64;
+#else
+  constexpr int waves = 32;
+#endif
   static_assert(block_size % thread_group_width == 0, "");
   constexpr int thread_groups_per_block = block_size / thread_group_width;
   dim3 block_dim(thread_group_width, thread_groups_per_block);
@@ -893,7 +897,11 @@ inline GPU(Error_t) LaunchLayerNormBlockUncachedImpl(GPU(Stream_t) stream, LOAD 
                                                     const double epsilon, ComputeType* mean,
                                                     ComputeType* inv_variance) {
   constexpr int block_size = 1024;
+#ifdef WITH_ROCM 
   constexpr int waves = 64;
+#else
+  constexpr int waves = 32;
+#endif
   int grid_dim_x;
   {
     GPU(Error_t) err =
@@ -1104,7 +1112,11 @@ inline GPU(Error_t) LaunchLayerNormGradWarpImpl(GPU(Stream_t) stream, LOAD_X loa
                                                const ComputeType* inv_variance, const int64_t rows,
                                                const int64_t cols) {
   constexpr int block_size = 128;
+#ifdef WITH_ROCM 
   constexpr int waves = 64;
+#else
+  constexpr int waves = 32;
+#endif
   static_assert(block_size % thread_group_width == 0, "");
   constexpr int thread_groups_per_block = block_size / thread_group_width;
   dim3 block_dim(thread_group_width, thread_groups_per_block);
